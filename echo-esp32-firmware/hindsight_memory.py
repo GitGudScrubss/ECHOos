@@ -35,6 +35,7 @@ import contextlib
 import os
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 
@@ -45,8 +46,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # Past these deadlines the answer is no longer useful, so we give up and fall
 # back to what the device already knows.
 RECALL_TIMEOUT = float(os.environ.get("HINDSIGHT_RECALL_TIMEOUT", "6"))
-REFLECT_TIMEOUT = float(os.environ.get("HINDSIGHT_REFLECT_TIMEOUT", "20"))
-RETAIN_TIMEOUT = 60.0
+REFLECT_TIMEOUT = float(os.environ.get("HINDSIGHT_REFLECT_TIMEOUT", "15"))
+# After a failed read, skip reads for this long so a dead network costs one
+# timeout, not one per touch.
+BACKOFF_SECONDS = 60.0
+# Retains run in the background (or while seeding), where a batch of a few
+# dozen memories can take a couple of minutes of LLM extraction server-side.
+RETAIN_TIMEOUT = 300.0
 
 
 def env_on(name, default="off"):
@@ -128,6 +134,7 @@ class LongTermMemory:
                          or DEFAULT_BASE_URL).rstrip("/")
         self.api_key = api_key if api_key is not None else _read_key()
         self.last_error = ""
+        self._down_until = 0.0
         self._bank_ready = False
         self._bank_lock = threading.Lock()
         self._collecting = None          # list while inside collect()
@@ -186,13 +193,19 @@ class LongTermMemory:
         any error (recorded in last_error). deadline=None waits for it."""
         if not self.enabled:
             return None
+        if which == "read" and time.monotonic() < self._down_until:
+            return None
         fut = self._submit(which, fn)
         try:
-            return fut.result(timeout=deadline)
+            result = fut.result(timeout=deadline)
+            self._down_until = 0.0
+            return result
         except FutureTimeout:
             self.last_error = f"timed out after {deadline:.0f}s"
         except Exception as e:                       # network, auth, API errors
             self.last_error = f"{type(e).__name__}: {e}"[:200]
+        if which == "read":
+            self._down_until = time.monotonic() + BACKOFF_SECONDS
         return None
 
     def _ensure_bank(self, client):
@@ -286,26 +299,32 @@ class LongTermMemory:
     # ---- recall / reflect -------------------------------------------------
 
     def recall(self, query, tags=None, max_tokens=900, budget="low",
-               timeout=RECALL_TIMEOUT, tags_match="any"):
+               timeout=RECALL_TIMEOUT, tags_match="any", query_timestamp=None):
         """Facts relevant to query, most relevant first, as [{text, when}],
-        or None if memory is off or unreachable."""
+        or None if memory is off or unreachable. query_timestamp anchors
+        relative phrases like "yesterday" (defaults to now)."""
         def read(client):
             r = client.recall(self.bank, query, max_tokens=max_tokens,
-                              budget=budget, tags=tags, tags_match=tags_match)
-            out = []
-            for res in r.results or []:
-                when = res.occurred_start or res.mentioned_at
-                out.append({"text": res.text, "when": _short_date(when)})
-            return out
+                              budget=budget, tags=tags, tags_match=tags_match,
+                              query_timestamp=_iso(query_timestamp) if query_timestamp else None)
+            # Results are not guaranteed to arrive in relevance order.
+            ranked = sorted(r.results or [], key=_score, reverse=True)
+            return [_fact(res) for res in ranked]
         return self._call("read", read, timeout)
 
     def reflect(self, query, tags=None, context=None, budget="low",
                 timeout=REFLECT_TIMEOUT, tags_match="any"):
-        """Hindsight's reasoned answer over the bank, or None."""
+        """Hindsight reasons over the bank (guided by its mission) and answers.
+        Returns {"text", "facts"} — facts being the memories it based the
+        answer on, as [{text, when}] — or None."""
         def think(client):
             r = client.reflect(self.bank, query, budget=budget, context=context,
-                               tags=tags, tags_match=tags_match)
-            return (r.text or "").strip() or None
+                               tags=tags, tags_match=tags_match, include_facts=True)
+            text = (r.text or "").strip()
+            if not text:
+                return None
+            used = getattr(r.based_on, "memories", None) or []
+            return {"text": text, "facts": [_fact(m) for m in used]}
         return self._call("read", think, timeout)
 
     def delete_bank(self):
@@ -322,6 +341,18 @@ def _iso(when):
             when = when.replace(tzinfo=timezone.utc)
         return when.isoformat()
     return str(when)
+
+
+def _score(result):
+    scores = getattr(result, "scores", None)
+    return getattr(scores, "final", None) or 0.0
+
+
+def _fact(item):
+    """A recall result or reflect fact -> {text, when}. Hindsight appends
+    ' | When: ... | Involving: ...' to fact text; we keep the sentence."""
+    when = getattr(item, "occurred_start", None) or getattr(item, "mentioned_at", None)
+    return {"text": (item.text or "").split(" | ")[0].strip(), "when": _short_date(when)}
 
 
 def _short_date(value):
