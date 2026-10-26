@@ -341,7 +341,6 @@ and nothing leaves the household at all. Full reasoning and trade-offs:
     Built on <a href="https://github.com/Satyabrat2005/echo-os">ECHO OS</a> for the
     Hindsight hackathon by Vectorize. Long-term memory by
     <a href="https://github.com/vectorize-io/hindsight">Hindsight</a>.<br>
-    The ECHO OS codebase declares the parent project's MIT license; no LICENSE file
-    is included in this repository yet.
+    All Rights Reserved
   </sub>
 </p>
