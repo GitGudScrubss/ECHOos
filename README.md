@@ -1,939 +1,347 @@
-# ECHO OS
+<p align="center">
+  <img src="docs/brand/echo-icon.svg" width="128" alt="ECHO OS icon: a pair of glasses whose lenses hold memory ripples">
+</p>
 
-[![CI](https://github.com/Satyabrat2005/echo-os/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Satyabrat2005/echo-os/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/Satyabrat2005/echo-os/branch/master/graph/badge.svg)](https://codecov.io/gh/Satyabrat2005/echo-os)
+<h1 align="center">ECHO OS</h1>
 
-**The on-device software runtime for ECHO smart glasses.**
+<p align="center">
+  <b>Smart glasses for people living with memory loss, with a memory that grows alongside them.</b><br>
+  On-device perception and a cautious reasoning core, plus long-term memory from
+  <a href="https://hindsight.vectorize.io">Hindsight</a>.<br>
+  It never guesses: it answers from what you actually lived, or it says so.
+</p>
 
-ECHO OS is the real-time software platform that runs on ECHO's glasses hardware
-(ESP32-S3 class SoC, OV2640 camera, mic, EEG frontend, PAM8403 audio). It is
-**not a from-scratch kernel** — it runs on top of a stripped-down embedded Linux
-base (Yocto/Buildroot-style minimal image) and layers a custom runtime, a
-voice-first UI shell, and a fully local AI pipeline on top. This is the same
-architectural relationship Android has to its kernel, or watchOS to Darwin.
+<p align="center">
+  <img alt="C++17" src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=cplusplus&logoColor=white">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="Memory: Hindsight" src="https://img.shields.io/badge/memory-Hindsight-7c5cff?style=flat-square">
+  <img alt="Hardware: ESP32-CAM" src="https://img.shields.io/badge/hardware-ESP32--CAM-E7352C?style=flat-square&logo=espressif&logoColor=white">
+  <img alt="Status: hackathon prototype" src="https://img.shields.io/badge/status-hackathon%20prototype-orange?style=flat-square">
+  <br>
+  <img alt="ctest 18/18 on MSVC" src="https://img.shields.io/badge/ctest-18%2F18%20passing%20(MSVC)-2ea44f?style=flat-square">
+  <img alt="LLM: Groq or Ollama" src="https://img.shields.io/badge/LLM-Groq%20%C2%B7%20Ollama-555?style=flat-square">
+  <img alt="Privacy: opt-in, text only" src="https://img.shields.io/badge/privacy-opt--in%2C%20text%20only-0b7285?style=flat-square">
+</p>
 
-The device is worn by people living with memory loss and by their caregivers.
-Every decision in this codebase is made in service of five non-negotiable design
-principles.
+<p align="center">
+  <a href="#-get-started"><img alt="Run the demo, no hardware needed" src="https://img.shields.io/badge/run%20the%20demo-no%20hardware%20needed-7c5cff?style=for-the-badge"></a>
+</p>
 
-## Documentation
+<p align="center">
+  <a href="https://hindsight.vectorize.io">Hindsight docs</a> ·
+  <a href="docs/DECISIONS.md#adr-22--long-term-episodic-memory-via-hindsight-opt-in-text-only-grounded-or-silent-amends-adr-5">ADR-22: memory &amp; privacy</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/ENGINEERING.md">Engineering log</a>
+</p>
 
-New here? Start with these five docs — they give the fastest honest picture of
-the system:
+<p align="center">
+  <img src="docs/brand/hero-before-after.svg" width="760" alt="Day 20, same question. Memory off: 'I don't have a record of that.' Memory on: 'You have an appointment with Dr. Rao on Wednesday 28th. Priya will pick you up at 10:00 for your 10:30 appointment.'">
+  <br>
+  <sub>Margaret, 78, asks her glasses the same question with long-term memory off and on.</sub>
+</p>
 
-| Doc | Read it for |
-|-----|-------------|
-| 📐 [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | The system diagram and a 10-second mental model — the core loop and the apps isolation boundary. |
-| 📊 [**docs/STATE.md**](docs/STATE.md) | Honest project status: what's built vs. still pending real-world validation, and test coverage by module. **Read this first.** |
-| 🚀 [**docs/RUNBOOK.md**](docs/RUNBOOK.md) | The consolidated, linear checklist to actually run it for real — deps, accounts, scripts, in order. |
-| 🧭 [**docs/DECISIONS.md**](docs/DECISIONS.md) | The architectural decision log — the real choices made and why. |
-| 🧱 [**docs/PHASE_LEDGER.md**](docs/PHASE_LEDGER.md) | How the project got here, phase 1 → 22: what each phase shipped, the rules every phase inherits, the gap register, and what to build next. |
+> [!NOTE]
+> **Everything shown here is real output.** The cards, plans and answers below were
+> produced by the code in this repository against Hindsight Cloud. The full
+> transcripts are in [`docs/hindsight/`](docs/hindsight), and you can reproduce them in
+> about two minutes with an API key and no hardware.
 
-The sections below remain the detailed, phase-by-phase reference.
+<p align="center">
+  <a href="#the-problem">The problem</a> ·
+  <a href="#-how-hindsight-memory-is-used">How memory is used</a> ·
+  <a href="#-watch-it-learn">Watch it learn</a> ·
+  <a href="#-the-step-by-step-guide">The guide</a> ·
+  <a href="#why-memory-not-fine-tuning">Why memory</a> ·
+  <a href="#-get-started">Get started</a> ·
+  <a href="#under-the-hood">Under the hood</a>
+</p>
 
-## Design principles
+<br>
 
-1. **Premium and calm.** Minimal visual noise, voice-first interaction, large
-   clear audio cues. The experience must feel reassuring, never cluttered.
-2. **Sub-120 ms perception-to-response.** Camera/mic/EEG input → recognition →
-   voice output, end to end, in under 120 ms. Every architectural choice is
-   evaluated against this budget.
-3. **Zero jank.** Audio and voice transitions must be smooth and consistent —
-   never stutter or drop frames — even under thermal or battery pressure.
-4. **Privacy by default.** No raw camera, audio, or EEG data leaves the device
-   under any circumstance. All inference is local.
-5. **Fail safe, not smart.** On low model confidence the system gives a minimal,
-   reassuring safe-mode response and flags the caregiver app — it never guesses.
+### 🧠 Memory is the product
+Every conversation is retained, so the glasses can answer "where did I leave my keys?"
+and "what did Priya promise?" days later, with dates. Without it, the honest answer is
+always *"I don't have a record of that."*
 
-## Architecture
+### 🫖 A guide that learns the person
+"I want to make a cup of tea" starts a step-by-step guide. On day 1 it walks through
+nine generic steps. By day 20 it's four steps, and it already knows the two moments she
+still needs a nudge.
 
+### 🛡️ Grounded or silent
+Answers come from the record or not at all, and are labelled *"From your memory"*. A
+miss, a timeout or a dead network falls back to today's behaviour. It never makes
+something up.
+
+### 🔒 Opt-in, text only
+Off by default. When on, only words leave the device: never faces, audio, WiFi
+fingerprints or sensor data. One bank per wearer, deletable in one call, and
+self-hostable.
+
+<br>
+
+## The problem
+
+About 55 million people live with dementia. The cruelest part of early-stage memory loss
+isn't forgetting a fact. It's that **the people around you have to remember everything
+for you**. They repeat the doctor's appointment five times a day, remind you who the
+neighbour is, and talk you through making tea. Carers burn out; the person loses
+independence and dignity.
+
+ECHO OS is a pair of glasses that does that remembering. A camera and microphone on an
+ESP32-CAM, a reasoning core that would rather say *"I don't know"* than guess, and, new
+in this project, **a long-term memory that turns every conversation into something the
+glasses can recall weeks later**.
+
+Our test subject is Margaret Ellis, 78 (synthetic, see
+[`demo/story.py`](echo-esp32-firmware/demo/story.py)). Over twenty days her daughter
+Priya visits, her grandson Arjun is in a school play, the neighbour Mr. Okafor waters her
+tomatoes, the nurse checks her blood pressure, Dr. Rao books a follow-up, the pharmacy
+changes, and she leaves her keys in the blue bowl. Her glasses heard all of it.
+
+## 🔁 How Hindsight memory is used
+
+[Hindsight](https://github.com/vectorize-io/hindsight) gives ECHO three verbs. Each one
+does a specific job:
+
+| Hindsight | When ECHO calls it | What for |
+|---|---|---|
+| **`retain`** | After every conversation, first meeting, named place, guide session, and anything the wearer says with no known face in view | Stores the full transcript (not a 19-character summary), tagged `person:priya`, `place:home`, `task:make-tea`, with the real timestamp |
+| **`reflect`** | A known face appears | *"Priya has just walked up. Who is she to Margaret, and what's open between them?"* → the person card |
+| **`reflect`** | Margaret asks about her own life | *"When is my appointment?"* → a dated, grounded answer, or *"no record"* |
+| **`reflect` + `response_schema`** | Before each guided task | Classifies every generic step from past sessions as `does_alone` / `needs_reminder` / `needed_help` / `no_info`, with the cue that worked and the evidence. Code builds the plan from that. |
+| **`recall`** | Anywhere ranked raw facts are needed | Facts sorted by Hindsight's relevance score, with dates, shown on the live page so you can see *why* it said what it said |
+
+```mermaid
+flowchart LR
+    G["ESP32-CAM glasses<br/>photo + 5 s audio + WiFi scan"] -->|touch| B["echo_brain.py<br/>faces · whisper · places"]
+    B -->|retain: transcript, who, where, when| H[("Hindsight<br/>bank per wearer")]
+    H -->|reflect: person card / answer / guide plan| B
+    B -->|21×8 OLED card| G
+    C["C++ cognitive core<br/>grounding rule"] -->|ILongTermMemory| BR["hindsight_bridge.py<br/>(holds the API key)"]
+    BR <--> H
 ```
-                          ┌──────────────────────────────────────────┐
-                          │                boot/                     │
-                          │   init sequence + Runtime (core loop)    │
-                          └──────────────────────────────────────────┘
-                                          │ owns & wires
-   ┌───────────────┐   frames   ┌───────────────┐  observation ┌───────────────┐
-   │ sensor-       │ ─────────► │  perception/  │ ───────────► │ cognitive-    │
-   │ pipeline/     │ lock-free  │ face/obj/wake │  confidence  │ core/         │
-   │ cam·mic·eeg   │  buffer    │ /ASR (quant.) │  scored      │ LLM + safe-   │
-   └───────────────┘            └───────────────┘              │ mode gate     │
-                                                               └──────┬────────┘
-                                                          response    │
-                                                                      ▼
-   ┌───────────────┐   alerts / status / firmware ONLY      ┌───────────────┐
-   │ companion-    │ ◄──────────────────────────────────────│  voice-ui/    │
-   │ sync/ (BLE/Wi)│         (never raw sensor data)        │ TTS + shell   │
-   └───────────────┘                                        └───────────────┘
 
-            power-mgmt/  observes the whole loop → sets Idle/Interactive/Throttled
-```
+**The bank's mission** tells Hindsight what matters: people and how Margaret knows them,
+promises and plans, appointments, preferences and routines, and which step of a task
+confused her and which cue helped. The **retain mission** tells it what to extract and
+what to ignore (small talk). One bank per wearer, created on first use.
 
-### Modules
+Two places in the code use it:
 
-| Module              | Language | Responsibility |
-|---------------------|----------|----------------|
-| `boot/`             | C++      | Fast cold-boot init on the embedded Linux base; owns the `Runtime` that wires the core loop and produces the `echo-os` binary. |
-| `sensor-pipeline/`  | C++      | Real-time camera/mic/EEG capture with a **single-producer/single-consumer lock-free ring buffer**, minimal-copy handoff to perception. |
-| `perception/`       | C++      | Quantized face/object recognition (lightweight CNN), wake-word detection, Whisper-class ASR. All local. |
-| `cognitive-core/`   | C++      | Orchestration around the quantized on-device LLM (ONNX Runtime / TensorRT-equivalent), plus the **confidence-threshold safe-mode gate** (principle #5). |
-| `memory/`           | C++      | **The on-device memory & recall engine** (Phase 15): a local, private **SQLite** store of people (name + relationship + SFace embedding), reminders, and a narrow event log. Powers face recall ("that's Priya, your daughter…") and `[route:memory]` questions; its raw content provably never reaches `companion-sync`. Always built (dependency-free vendored SQLite). |
-| `voice-ui/`         | C++      | TTS output and the audio-first interaction shell; double-buffered for zero jank; tone-aware (reassuring vs. neutral). |
-| `companion-sync/`   | C++      | BLE/WiFi sync to the caregiver companion app. Carries **alerts, status, and firmware only — never raw sensor data**, enforced by the interface shape (principle #4). |
-| `power-mgmt/`       | C++      | DVFS / duty-cycle scheduling balancing the latency target against battery and thermals. |
-| `common/`           | C++      | Shared vocabulary: `SensorFrame` (non-owning view), `Result<T>`, `Confidence`, the latency-budget definition, and logging. |
+- **The ESP32 brain** ([`echo_brain.py`](echo-esp32-firmware/echo_brain.py)) via
+  [`hindsight_memory.py`](echo-esp32-firmware/hindsight_memory.py): a fail-safe wrapper
+  where each lane (background writes, interactive reads) owns its client on its own
+  thread. Every read has a deadline, a failure backs off for 60 s, and the result is
+  always "an answer or `None`".
+- **The C++ cognitive core** through a new
+  [`ILongTermMemory`](memory/include/echo/memory/long_term_memory.hpp) seam. When the
+  on-device store has no answer to a question about the wearer's own life, long-term
+  memory is asked *before* the core abstains. A local
+  [bridge](scripts/hindsight_bridge.py) holds the key and asks `reflect` for structured
+  `{found, answer}`, so "memory has nothing" comes back as nothing and the core still
+  says *"I don't have a record of that."*
 
-> The scaffold is written in C++17. The sensor pipeline's hot path is the natural
-> home for Rust on the target (lock-free capture, zero-copy buffers); the module
-> boundary is drawn so it can be swapped to Rust behind the same `ISensorSource`
-> contract without touching downstream modules.
+## 📈 Watch it learn
 
-## The 120 ms latency budget
+The same three moments, replayed into a fresh memory bank as Margaret's life unfolds
+(`--curve`). Only memory changes between the columns:
 
-The end-to-end budget is encoded as data in
-[`common/include/echo/latency.hpp`](common/include/echo/latency.hpp) and asserted
-by a unit test — it is a build-enforced contract, not a comment.
+| | Day 1 · 2 memories | Day 5 · 8 memories | Day 20 · 25 memories |
+|---|---|---|---|
+| **"When is my appointment with the doctor?"** | *"I do not have any record of an appointment with your doctor."* | *"You have an appointment with Dr. Rao on Wednesday 28th at 10:30. Please remember to bring your medication list with you."* | *"You have an appointment with Dr. Rao on Wednesday 28th at 10:30. Priya will pick you up at 10:00. Bring your medication list."* |
+| **"Where did I leave my house keys?"** | *"I do not have a record of where you left your house keys."* | *"I do not know where your house keys are. Daniel from number 12 has a spare key if you need one."* | *"You left your house keys in the blue bowl by the front door on Saturday the 24th."* |
+| **Priya walks in** | *"Priya is your daughter. She will take you to Friday 6th's school play at 3:30."* | *"Priya is your daughter. You are visiting St. Mary's garden today, Sunday 11th, for Dad's…"* | *"Priya is your daughter. She takes you to Dr. Rao on Wednesday 28th at 10:00."* |
 
-| Stage             | Budget | What runs here |
-|-------------------|-------:|----------------|
-| Sensor capture    |   5 ms | Frontend latch + lock-free handoff to perception |
-| Perception        |  45 ms | Wake-word / ASR / quantized face + object CNN |
-| Cognitive core    |  50 ms | Quantized LLM inference + safe-mode gate |
-| Voice output      |  18 ms | TTS synth + first audio sample out the amp |
-| Cross-stage overhead | 2 ms | Scheduling slack |
-| **End to end**    | **120 ms** | Sensor input → first sample of speech |
+Day 1 says "I don't know" honestly. Day 5 knows the appointment but not who's taking her.
+Day 20 knows both, and where the keys are.
 
-Every stage wraps its work in a `StageTimer` (RAII) that logs a warning on
-overrun and feeds `power-mgmt`, which trades duty cycle for thermal headroom
-while keeping any in-flight response smooth.
+And with memory **off** (today's device), on day 20, for the same moments (`docs/hindsight/demo-compare.txt`):
 
-## Apps layer
+| Moment | Memory off | Memory on |
+|---|---|---|
+| Priya walks in | *Talked about: "Hello from child", "Lunch not mentioned", "Arrival announced"* | *Priya is your daughter. She takes you to Dr. Rao on Wednesday 28th at 10:00.* |
+| "Where did I leave my house keys?" | *I don't have a record of that.* | *You left your house keys in the blue bowl by the front door on Saturday, October 24th.* |
+| Mr. Okafor walks in | *Talked about: "Lovely day", "Afternoon", "Margaret"* | *You know Daniel from number 12. He has your spare key and helps with plants.* |
+| "Which pharmacy do my prescriptions come from now?" | *I don't have a record of that.* | *Your prescriptions now come from Boots on Station Road. They deliver them to you every Monday.* |
 
-On top of the safety-critical core sits [`apps/`](apps/) — the voice-first
-application layer (media, browser, search, video, mail, telephony, camera,
-gallery). It is a **separate layer with hard isolation from the core**: apps run
-as their own OS processes under a supervisor, and nothing an app does can block,
-slow, or crash the sub-120 ms perception → cognitive → voice loop. See
-[`apps/README.md`](apps/README.md) for the full design; the essentials:
+An earlier version of Mr. Okafor's card said *"He owes you a blue dish"*, a promise he'd
+kept days before. Reflect is now told to check whether a later memory closed a promise
+before repeating it, and to say which time is which (pick-up vs. appointment).
 
-- **Voice-first, no touchscreen.** These are not phone apps. The glasses have no
-  touchscreen and no window manager — every app is a *voice command → spoken /
-  HUD response* loop. The only visual surface is the **HUD compositor**, which
-  exposes three overlay primitives (subtitle text, one icon, a status glyph) and
-  nothing else. No app ever gets a screen or a window (principle #1).
-- **Isolated processes.** `apps/app-framework/` supervises each app as its own
-  process, restarts a crashed app with bounded backoff, and bridges an app's
-  output to the core's `voice-ui` through its **public interface only** — never
-  its internals (principle #2, extended to the apps boundary).
-- **Mock by default.** Spotify, Gmail, YouTube, and Google Search each need
-  developer credentials that don't exist yet, so every external service ships a
-  `--mock` backend returning realistic fake data behind a clean interface. The
-  entire voice flow is testable today; wiring real credentials later requires
-  **zero interface changes** (principle #4 — privacy by default, plus no surprise
-  network access without a granted capability).
+## 🫖 The step-by-step guide
 
-### Testing the apps layer on a laptop
+[`guide_agent.py`](echo-esp32-firmware/guide_agent.py) walks the wearer through
+everyday tasks one touch at a time (*done*, *help*, *stop*). Hindsight decides what to
+skip and what to pre-empt; the code owns the template and the safety rules.
 
-The layer builds and runs standalone on a dev machine, with the laptop's
-keyboard/mic standing in for the glasses' ASR and a simulated HUD band standing
-in for the overlay. It is built by default as part of the top-level build (toggle
-with `-DECHO_BUILD_APPS=OFF`), or on its own with `cmake -S apps -B build-apps`.
+<table>
+<tr><th>Day 1 · no history</th><th>Day 5 · two sessions</th><th>Day 20 · six sessions</th></tr>
+<tr valign="top"><td>
+
+**9 generic steps**
+1. Take a mug from the cupboard.
+2. Fill the kettle with water to the line.
+3. Switch the kettle on.
+4. Wait for the kettle to click off.
+5. Put one tea bag in the mug.
+6. Pour the hot water into the mug, slowly.
+7. Wait three minutes, then take the tea bag out.
+8. Add milk and sugar if you like.
+9. Your tea is ready. Sit down and enjoy it.
+
+</td><td>
+
+**9 steps, 2 cues from memory**
+- Switch the kettle on.<br>*cue: "Pointing at the wall socket with the red switch"*
+- Put one tea bag in the mug.<br>*cue: "Green tin to the left of the kettle"*
+
+*"Margaret is learning to use the guide and needed help with most steps yesterday, but she successfully turned on the kettle today after a visual cue."*
+
+</td><td>
+
+**4 steps**
+1. Wait for the kettle to click off.<br>*cue: "Wait for the click."*
+2. Pour the hot water into the mug, slowly.
+3. Wait three minutes, then take the tea bag out.<br>*cue: "Take the bag out now."*
+4. Your tea is ready. Sit down and enjoy it.
+
+*"Margaret is increasingly independent with making tea in her yellow mug, though she still benefits from gentle reminders to listen for the kettle clicking off and to remove the tea bag after three minutes."*
+
+</td></tr>
+</table>
+
+After every session one summary is retained, e.g. *"Needed help with 'wait for the
+kettle to click off' (1x, the cue 'Wait for the click.' was shown). Did these alone: …"*,
+and the next plan starts from it.
+
+> [!IMPORTANT]
+> **Memory can reword, cue or skip a step; it can never invent one.** Steps must come
+> from the template, in order. *Must-keep* steps (hot water, door locks, the cooker) are
+> re-inserted if skipped. Anything mentioning medication is replaced with the generic
+> step. If memory is unavailable or returns nothing usable, the generic template runs as
+> is. Fail safe, not smart.
+
+## Why memory, not fine-tuning
+
+- **The facts are about one person and change every day.** Priya's visit moved, the
+  pharmacy changed, the keys are somewhere new. Fine-tuning bakes in a snapshot; memory
+  takes a new fact the moment it's said.
+- **Every answer must be traceable.** Reflect returns the memories it used, and the live
+  page shows them. A fine-tuned weight can't tell a carer *where* it learned that the
+  appointment is at 10:30.
+- **It must be deletable.** A wearer's life story is theirs. A bank deletes in one call;
+  you can't un-train a model on someone's conversations.
+- **"I don't know" has to stay possible.** A model trained on a person's life will
+  answer fluently whether or not it knows. Retrieval can come back empty, and then ECHO
+  says so. For someone who can't fact-check their own glasses, that matters more than
+  anything else.
+- **No GPU, no training loop, no data pipeline.** It works from the first conversation
+  on a $10 camera board and a laptop.
+
+## 🚀 Get started
+
+### The demo (no hardware, about two minutes)
 
 ```bash
-# Run the whole layer: spawns the 8 apps as isolated processes, routes typed
-# "voice" commands to the owning app over IPC, and speaks/draws the mock reply.
-./build/apps-bin/echo-apps                 # --window for the simulated HUD band
+pip install hindsight-client
+# your key from https://ui.hindsight.vectorize.io: env var, or a gitignored file
+echo hsk_your_key > HINDSIGHT_API_KEY.env
+
+cd echo-esp32-firmware
+python demo/hindsight_demo.py --seed          # load Margaret's 20 days (one batch)
+python demo/hindsight_demo.py                 # day 20: memory OFF vs ON, side by side
+python demo/hindsight_demo.py --curve         # watch it learn: day 1 → 5 → 20
+python demo/hindsight_demo.py --guide         # the tea guide on day 1, 5, 20
+python demo/hindsight_demo.py --guide --live  # step through it yourself; it remembers
 ```
 
-```text
-> play some jazz          → media:     "Now playing Kind of Blue by Miles Davis."
-> any unread messages     → mail:      "You have 3 unread messages…"
-> call Sam                → telephony: "Calling Sam…"  (Bluetooth to paired phone)
-```
+Short display text comes from Groq (`GROQ_API_KEY`, `openai/gpt-oss-120b`) if set, else a
+local [Ollama](https://ollama.com) model, else plain rules (`ECHO_LLM=off`). Memory
+answers come from Hindsight either way.
 
-Smoke tests cover command-in → correct-app → mocked-response-out for media, mail,
-and telephony; that two apps render through the one shared HUD surface; the
-permission gate; and real cross-process supervision (IPC round-trip + crash
-containment). They run as part of `ctest` below.
-
-**Core-pipeline harness (Phase 10).** A fixture-driven suite feeds tiny,
-checked-in synthetic audio/images ([`tests/fixtures/`](tests/fixtures/README.md))
-through the **real** core modules — `echo-sensor` (real capture queue),
-`echo-perception` (routing/framing/fusion in stub-engine mode), `echo-voice`
-(tone mapping), `echo-companion` (a compile-time proof that no transport path
-accepts a `SensorFrame`), and `echo-e2e-fixture` (a full sensor→perception→
-cognitive→voice turn landing in the safe-mode fallback). It exercises production
-code, not mocks, and marks the real wake/ASR/vision/LLM model paths as an explicit
-gap where the installed libraries are required. See coverage in
-[`docs/STATE.md`](docs/STATE.md).
-
-## Building
-
-Requires CMake ≥ 3.16 and a C++17 compiler. No external dependencies — the
-scaffold compiles cleanly end to end with stub logic on any host toolchain, and
-cross-compiles to the target unchanged.
+### The glasses (ESP32-CAM + laptop brain)
 
 ```bash
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+pip install -r echo-esp32-firmware/requirements.txt
+ECHO_HINDSIGHT=on ECHO_WEARER_NAME=Margaret python echo-esp32-firmware/echo_brain.py
+# flash the board per echo-esp32-firmware/BRINGUP_NOTES.md, then touch and speak:
+#   "hello my name is Priya"           enrol a face
+#   "who is this"                      person card from memory
+#   "when is my doctor's appointment"  answer from memory
+#   "I want to make a cup of tea"      start the guide; touch = next, "help", "stop"
+# live view: http://localhost:8080 (shows what Hindsight recalled)
 ```
 
-Run the reference binary (boots the runtime, runs one tick of the core loop
-through the stub pipeline, shuts down cleanly):
+### The C++ core (CMake, C++17)
 
 ```bash
-./build/boot/echo-os          # (build/boot/echo-os.exe on Windows/MinGW)
+cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
+python scripts/hindsight_bridge.py --bank echo-demo-margaret     # in another terminal
+./build/apps-bin/echo-demo --text --headless-hud --hindsight
+> when is my appointment with the doctor
+From your memory: The doctor's appointment with Dr. Rao is on Wednesday, October 28 at 10:30, with a pickup by Priya at 10:00.
 ```
 
-## Continuous Integration (CI)
-
-Every push and every pull request targeting `master` runs
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) on GitHub Actions. Before
-Phase 7 the full test suite was run by hand before each merge — which caught real
-bugs (the Phase 6 JSON stack-overflow and Gmail header-injection fixes are proof),
-but only as long as someone remembered to run it. CI makes that automatic and
-mandatory instead of optional.
-
-**What's covered**
-
-| Job | What it does | Deps / secrets |
-|-----|--------------|----------------|
-| **Stub build** | Configures with every `ECHO_WITH_*` / `ECHO_REAL_AI` flag OFF (the dependency-free default since Phase 1), builds, and runs the **full** `ctest` suite. This job is the safety net every future phase depends on — it must always be green. | None. No external deps, no secrets. |
-| **Network build** | Installs libcurl, configures `-DECHO_WITH_NETWORK=ON`, builds, and runs the appkit + apps suites — JSON parsing (incl. the deep-nesting overflow guard), the Gmail header-injection regression test, the confirm-before-action gate, and the NLU mail/browser routing fix. Proves the Phase 5/6 network branch compiles and passes on a clean machine, not just a developer's laptop. | libcurl (from the runner's apt). **No live API calls** — the tests are credential-free; libcurl only needs to link. |
-| **Secret scan** | Runs the existing [`scripts/check_secrets.sh`](scripts/check_secrets.sh) rules over the tree, so a real API key, OAuth secret, private key, token cache, or committed `.env` fails the run and blocks merge — even if a future session forgets to run the check manually. | None. |
-| **Real engines** (Phases 11 + 13) | Configures `-DECHO_WITH_WHISPER/OPENCV/PIPER/OPENWAKEWORD=ON`, downloads and **SHA-256-verifies** the free models (whisper `tiny.en`, OpenCV YuNet+SFace, a Piper voice, the openWakeWord ONNX pipeline + ONNX Runtime) + two public-domain face photos, builds whisper.cpp from source, and runs [`tests/real_*_test.cpp`](tests/) (ASR, vision, TTS, **wake-word**) against **real weights** on the Phase 10 fixtures + Piper-synthesized speech. Runs in parallel with the fast jobs; models + whisper build are cached. See "Running the real-engine tests locally" below. | Free models only — **no account, no secret**. Every download is checksum-verified before use. |
-| **Real LLM** (Phase 12) | Configures `-DECHO_WITH_LLAMA=ON`, builds llama.cpp from a pinned tag, downloads and **SHA-256-verifies** a *tiny* instruct model (`Qwen2.5-0.5B-Instruct` Q5_K_M, ~498 MiB — see [`MANIFEST.md`](MANIFEST.md)), and runs [`tests/real_llm_test.cpp`](tests/real_llm_test.cpp): route-tag parsing and the safe-mode gate against a **real model's real output**. Runs in parallel; model + llama build are cached. | Free model only — **no account, no secret**. Checksum-verified before use. |
-
-Dependency caching (ccache) keeps PR feedback fast, so runs don't rebuild every
-object from scratch. A newer push to the same branch cancels the in-flight run.
-
-**What the real-engines job proves — and what it doesn't.** It verifies the real
-whisper.cpp, OpenCV, and Piper engines *run correctly on clean fixtures* (silence →
-near-empty transcript, a clear phrase → the expected words; enrolled face → matched,
-a different face → not matched, a non-face frame → nothing; both TTS tones →
-valid non-silent audio, reassuring measurably slower than neutral). It does **not**
-claim field robustness — the fixtures are synthetic/clean, so passing here does not
-mean `tiny.en` or SFace hold up under real noise, motion, or poor light. That still
-needs the on-hardware run.
-
-**The real-LLM job (Phase 12) — what it proves, and what it doesn't.** Phase 11
-listed llama.cpp as too large for CI; that was true of a full 3B–4B model, so
-Phase 12 uses a genuinely *tiny* one (0.5B, ~498 MiB) that runs one short greedy CPU
-inference in seconds. The `real-llm` job verifies, against the real model's real
-output: the route-tag parser extracts `media` from `[route:media]…` the model
-actually emits for "play some jazz music"; the safe-mode gate still refuses a
-low-confidence turn with the real LLM wired in (keying on perception confidence, not
-model text — a **real finding**, since unlike the stub a real model never returns
-the empty string that would trip the LLM-failure path); and a plain question returns
-non-empty text. It does **not** claim production reasoning quality — a 0.5B model
-only exercises the *integration*; the deployment-size model is untested here.
-
-**The wake-word job (Phase 13) — what it proves, and what it doesn't.** Phase 11
-left wake-word out of CI because the Porcupine backend needs an account-gated key.
-Phase 13 adds **openWakeWord** behind the same `IWakeWord` interface (default
-backend; Porcupine kept as a production option) — a pretrained three-stage ONNX
-pipeline on ONNX Runtime, all Apache-2.0 / MIT and anonymously fetchable. Its part
-of the `real-engines` job verifies, against real models: a Piper-synthesized
-"hey jarvis" clip clears the detection threshold (an *in-distribution* positive —
-openWakeWord itself trains on Piper TTS), while ordinary non-wake speech, silence,
-and garble stay below it (no false accept). It prints every observed score and
-asserts on the model's *actual* probabilistic behavior. It does **not** claim a
-custom "Hey ECHO" word (it ships the pretrained "hey jarvis"; training a bespoke word
-is a documented follow-up) nor field robustness.
-
-**Still deliberately excluded.** **Porcupine** stays out of CI (account-gated key —
-now redundant for CI since openWakeWord covers wake-word account-free; Porcupine
-remains a higher-accuracy *production* option), and so does **production-grade LLM
-reasoning** (a deployment-size, multi-gigabyte model — Phase 12 verifies the
-llama.cpp *integration* with a tiny model, not answer quality). The **stub build**
-remains the deterministic dependency-free proxy, and both stay real-hardware-run
-items.
-
-**Branch protection (manual step — repo admin).** The workflow blocks merge only once
-branch protection actually requires it; that is a GitHub repo-settings action, not
-something committed in code. Whoever has admin access should, under
-**Settings → Branches → Branch protection rules** for `master`:
-
-- **Require status checks to pass before merging**, and select the CI checks:
-  *Stub build (no deps) + full ctest*, *Network build (ECHO_WITH_NETWORK=ON) +
-  appkit/apps tests*, *Secret scan (check_secrets.sh)*, and — added in Phase 8 —
-  *clang-tidy (bugprone/cert/security)*, *cppcheck (static analysis)*,
-  *Fuzz JSON parser (libFuzzer, bounded)*, *Coverage (gcov/gcovr)*, — added in
-  Phases 11 + 13 — *Real engines (whisper/OpenCV/Piper/openWakeWord) vs. fixtures*,
-  and — added in Phase 12 — *Real LLM (llama.cpp tiny model) route-tag + safe-mode gate*.
-- **Require branches to be up to date before merging** (so checks run against the
-  post-merge tree).
-
-Without this, the badge is informational only; with it, a red run genuinely stops
-the merge — which is the point of the phase.
-
-### Running the real-engine tests locally (Phase 11)
-
-You don't need to wait on CI to reproduce the real-engine verification. On Linux
-(the tests target it; OpenCV/SDL2 come from apt, whisper.cpp builds from source):
-
-```bash
-# 1. OpenCV (>=4.6, ships YuNet+SFace) and SDL2 (so the Piper voice lib links):
-sudo apt-get install -y cmake build-essential git libopencv-dev libsdl2-dev
-
-# 2. Fetch + SHA-256-verify the free models, the two public-domain face photos, and
-#    (Phase 13) the openWakeWord ONNX pipeline + ONNX Runtime. Idempotent and
-#    checksum-guarded; downloads ~240 MB the first time.
-scripts/fetch_real_engine_assets.sh .real-engine-assets
-A="$PWD/.real-engine-assets"
-
-# 3. Build + install whisper.cpp (no apt package), so find_package(whisper) resolves:
-git clone --depth 1 --branch v1.7.4 https://github.com/ggerganov/whisper.cpp
-cmake -S whisper.cpp -B whisper.cpp/build -DCMAKE_BUILD_TYPE=Release \
-  -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.whisper-install"
-cmake --build whisper.cpp/build --parallel && cmake --install whisper.cpp/build
-
-# 4. Synthesize the ASR "clear speech" clip + (Phase 13) the wake-word clips with Piper:
-export LD_LIBRARY_PATH="$A/piper:$PWD/.whisper-install/lib:$A/onnxruntime-linux-x64-1.17.3/lib:${LD_LIBRARY_PATH:-}"
-echo "the quick brown fox jumps over the lazy dog" | \
-  "$A/piper/piper" --model "$A/voices/en_US-amy-medium.onnx" --output_file "$A/speech.wav"
-echo "hey jarvis" | \
-  "$A/piper/piper" --model "$A/voices/en_US-amy-medium.onnx" --output_file "$A/wake_hey_jarvis.wav"
-echo "what time is the next train to boston" | \
-  "$A/piper/piper" --model "$A/voices/en_US-amy-medium.onnx" --output_file "$A/not_wake_speech.wav"
-
-# 5. Configure with the engines ON (incl. openWakeWord via ONNXRUNTIME_ROOT), build,
-#    and run just the real suite:
-cmake -S . -B build-real -DECHO_WITH_WHISPER=ON -DECHO_WITH_OPENCV=ON \
-  -DECHO_WITH_PIPER=ON -DECHO_WITH_OPENWAKEWORD=ON \
-  -DONNXRUNTIME_ROOT="$A/onnxruntime-linux-x64-1.17.3" \
-  -DCMAKE_PREFIX_PATH="$PWD/.whisper-install"
-cmake --build build-real --parallel
-ECHO_WHISPER_MODEL="$A/ggml-tiny.en.bin" \
-ECHO_FACE_DETECT_MODEL="$A/face_detection_yunet.onnx" \
-ECHO_FACE_RECOG_MODEL="$A/face_recognition_sface.onnx" \
-ECHO_FACES_DIR="$A/faces/enrolled" \
-ECHO_FACE_ENROLLED_IMG="$A/faces/enrolled/grace_hopper.jpg" \
-ECHO_FACE_UNKNOWN_IMG="$A/faces/astronaut.png" \
-ECHO_PIPER_BIN="$A/piper/piper" ECHO_PIPER_VOICE="$A/voices/en_US-amy-medium.onnx" \
-ECHO_ASR_SPEECH_WAV="$A/speech.wav" \
-ECHO_OWW_MELSPEC="$A/openwakeword/melspectrogram.onnx" \
-ECHO_OWW_EMBEDDING="$A/openwakeword/embedding_model.onnx" \
-ECHO_OWW_MODEL="$A/openwakeword/hey_jarvis_v0.1.onnx" \
-ECHO_WAKE_CLIP="$A/wake_hey_jarvis.wav" ECHO_NOTWAKE_CLIP="$A/not_wake_speech.wav" \
-  ctest --test-dir build-real --output-on-failure -R "real"
-```
-
-Each real test **self-skips** (green, with a loud message) if you build with an
-engine flag ON but haven't provided its model — so you can bring the engines up one
-at a time. The exact steps CI runs are in the `real-engines` job of
-[`ci.yml`](.github/workflows/ci.yml).
-
-**The real-LLM test (Phase 12)** works the same way, behind `-DECHO_WITH_LLAMA=ON`.
-Fetch just the model with the fetch script's substring filter, point the adapter at
-it, and run the `real-llm` suite:
-
-```bash
-A="$PWD/.real-llm-assets"
-bash scripts/fetch_real_engine_assets.sh "$A" llm.gguf   # ~498 MB, SHA-256-verified
-# build llama.cpp and configure with -DECHO_WITH_LLAMA=ON -DCMAKE_PREFIX_PATH=<llama-install>
-# (see the "Phase 3/4" llama.cpp notes below), then:
-ECHO_LLAMA_MODEL="$A/llm.gguf" ctest --test-dir build-real-llm --output-on-failure -R "real-llm"
-```
-
-Exact steps are in the `real-llm` job of [`ci.yml`](.github/workflows/ci.yml).
-
-## Code Quality (Phase 8)
-
-Phase 6 found two real bugs by careful manual review — the JSON parser's unbounded
-recursion (a stack overflow on hostile input) and the Gmail header-injection hole.
-Both are textbook cases for automated tooling. Manual review doesn't scale and won't
-happen with the same rigor every time, so Phase 8 gives CI teeth against exactly this
-class of bug: static analysis, fuzzing, and coverage, all wired into
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
-**What's now checked automatically, on every push and PR**
-
-| Check | What it catches | Config |
-|-------|-----------------|--------|
-| **clang-tidy** | The `bugprone-*`, `cert-*`, and `clang-analyzer-*` families — the category that flags untrusted data flowing into a protocol string (the header-injection pattern). Runs over every first-party translation unit; findings are hard errors. | [`.clang-tidy`](.clang-tidy), driven by [`scripts/run_clang_tidy.sh`](scripts/run_clang_tidy.sh) |
-| **cppcheck** | A second, independently-implemented analyzer over the same compile database — different engines catch different defects, so it runs *alongside* clang-tidy, not instead of it. `warning`/`performance`/`portability` findings fail the job. | inline in the workflow |
-| **Fuzzing (JSON)** | A coverage-guided libFuzzer harness for `Json::parse` — the one parser that eats untrusted network bytes and already had a crash bug — run bounded (~2 min) under AddressSanitizer/UndefinedBehaviorSanitizer, seeded from a checked-in corpus. | [`apps/appkit/fuzz/`](apps/appkit/fuzz/) (`-DECHO_BUILD_FUZZERS=ON`) |
-| **Coverage** | Line/function/branch coverage via gcov + gcovr. The % is printed to the Actions run summary (visible and trending on its own), the full HTML/XML report is uploaded as an artifact, and the XML feeds the Codecov badge above. | `-DECHO_COVERAGE=ON` |
-
-All four are **additive CI-only jobs**. Every `ECHO_WITH_*` / `ECHO_REAL_AI` /
-`ECHO_BUILD_FUZZERS` / `ECHO_COVERAGE` flag defaults **off**, so a normal local
-build — and the always-green stub build — stays zero-dependency and unaffected
-(constraint #1). The fuzz job is time-bounded and the build jobs are ccache-cached so
-this doesn't balloon CI runtime (constraint #2).
-
-**Findings fixed this phase (fix, don't defer — same discipline as Phase 6)**
-
-Running the analyzers on the existing tree surfaced real quality/robustness issues,
-fixed here rather than filed for later:
-
-- **cppcheck** — a latent null-dereference in the demo's real-capture path
-  ([`apps/demo/echo_demo.cpp`](apps/demo/echo_demo.cpp)): `mic->start()` was called
-  unguarded while the cleanup path and the "microphone unavailable" log both already
-  treated `mic` as possibly-null. Today's factories never return null, so it can't
-  crash *yet* — but a real mic backend that fails to open the device would. Now
-  guarded, so it degrades to the existing "unavailable" message instead of a crash.
-- **clang-tidy** — every finding fixed. From the first pass: a pointless `std::move`
-  in `VoiceCommand::slot` that the compiler couldn't honor (a copy happened anyway, and
-  the by-value default was copied per call — now a `const` reference); a hot-path
-  `snprintf` in `url_encode` replaced with direct hex writing (faster, no ignored
-  return); the Phase 6 `sanitize_header_value` moved into an anonymous namespace; and
-  twelve `cert-err33-c` sites — all C-stdlib format/log calls (`snprintf` into a fixed
-  buffer, `fprintf`/`fflush`, `signal`) whose return is conventionally and safely
-  ignored — made explicit with `(void)` casts so the check stays live to catch a
-  *future* ignored `fopen`/`malloc`. The CI run (Linux/libstdc++, which models
-  `std::optional` where a Windows/MSVC-header run cannot) additionally caught a real
-  **unchecked-optional-access** in the supervisor's exit-code logging — now the
-  idiomatic `.value_or(-1)` — plus a `size_t`→`double` narrowing in the latency
-  printout (explicit `static_cast`). `Result::value()` keeps a documented `NOLINT`: it
-  is deliberately the unchecked accessor (precondition `is_ok()`, like
-  `std::optional::operator*`), with `value_or()` as the checked path.
-- **cppcheck** — beyond the null-deref above, its CI version flagged redundant
-  `.c_str()` calls passed to `string_view`-taking loggers (`stlcstrParam`: a needless
-  `strlen`); all such call sites now pass the `std::string` directly.
-- **Fuzzing** — no new crash surfaced (locally, 30k mutated inputs; in CI, the bounded
-  ASan/UBSan run). That's the expected, good outcome: the one known parser crash was
-  already fixed in Phase 6 with the depth cap. The harness's value is ongoing
-  regression protection — it's there so the *next* such bug is caught by a machine.
-
-Several checks are deliberately **tuned, not blindly maxed** — each disabled check in
-[`.clang-tidy`](.clang-tidy) carries a one-line reason (e.g. the recursive-descent
-parser legitimately recurses; the tree standardized on `#pragma once`). Tuning out
-genuine noise is documented; nothing with a real defect behind it is suppressed
-(constraint #3).
-
-**What's deliberately *not* done yet**
-
-- **Fuzzing is scoped to the JSON parser** — the highest-risk parser (untrusted
-  network input, a prior crash bug). The other text/network parsers (URL encoding,
-  the `readable.cpp` HTML extractor, base64) are sound candidates for their own
-  harnesses and are noted as future work; each would follow the same
-  `apps/appkit/fuzz/` pattern.
-- **Coverage is not gated on a threshold.** The number is made *visible and trending*
-  first; an arbitrary floor on a codebase this size — much of which is still
-  intentionally stubbed core — would be premature and would reward writing tests for
-  stub code. A minimum comes later, once the real engines land and the meaningful
-  denominator settles.
-- **The real local-AI matrix stays excluded**, exactly as in the CI section above:
-  clang-tidy/cppcheck run over the dependency-free first-party sources, not the
-  account-gated, multi-GB `ECHO_REAL_AI` build.
-
-**Running it locally**
-
-```bash
-# Static analysis (needs clang-tidy / cppcheck on PATH):
-cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-scripts/run_clang_tidy.sh build
-cppcheck --enable=warning,performance,portability --std=c++17 \
-  --project=build/compile_commands.json
-
-# Coverage (needs gcovr):
-cmake -S . -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DECHO_COVERAGE=ON
-cmake --build build-coverage --parallel && ctest --test-dir build-coverage
-gcovr --root . --exclude '.*/tests/.*' --exclude '.*/fuzz/.*' --print-summary
-
-# Fuzzing — see apps/appkit/fuzz/README.md for a full local session (Clang) and for
-# replaying a crash on the default toolchain without Clang.
-```
-
-The Codecov badge reads `unknown` until the repository is enabled on Codecov — a
-one-time repo-settings step, like branch protection above. The coverage **percentage
-is visible without it**, in every run's Actions summary.
-
-## Phase 3: Real Local AI
-
-Phase 3 replaces the core pipeline's stubs with **real, fully local, offline**
-models and adds a **laptop HUD overlay** that stands in for the glasses display,
-so the whole loop runs end to end on a laptop:
-
-> webcam + mic in → **"Hey ECHO"** wake word → speech-to-text → {face
-> recognition | app routing | LLM reasoning, behind the safe-mode gate} →
-> spoken response (TTS) + HUD subtitle out.
-
-Nothing here touches the network — wake word, ASR, reasoning, TTS, and face/
-object recognition all run on-device (principle #4). The mocked external services
-(Spotify, Gmail, …) stay mocked; this phase makes the *core intelligence* real,
-not the third-party integrations.
-
-### Engines and models used
-
-Every engine is behind a CMake option that defaults **OFF**, so the tree still
-builds end to end with zero dependencies (the stub fallback). Turn one on once
-its library is installed and its model placed under [`models/`](models/README.md).
-Flip them all with `-DECHO_REAL_AI=ON`.
-
-| Stage | Module | Engine (option) | Suggested model + quantization |
-|-------|--------|-----------------|--------------------------------|
-| Wake word (default, account-free) | `perception/` | **openWakeWord** on ONNX Runtime (`ECHO_WITH_OPENWAKEWORD`) | `hey_jarvis_v0.1.onnx` + shared `melspectrogram.onnx` / `embedding_model.onnx` |
-| Wake word (production option) | `perception/` | Picovoice **Porcupine** (`ECHO_WITH_PORCUPINE`) | custom `Hey ECHO` `.ppn` keyword |
-| Speech-to-text | `perception/` | **whisper.cpp** (`ECHO_WITH_WHISPER`) | `ggml-base.en-q5_1.bin` (or `small.en`) |
-| Reasoning + intent routing | `cognitive-core/` | **llama.cpp** (`ECHO_WITH_LLAMA`) | `Llama-3.2-3B-Instruct` **Q4_K_M** (or `Phi-3.5-mini-instruct` Q4_K_M) |
-| Text-to-speech | `voice-ui/` | **Piper** (`ECHO_WITH_PIPER`) | `en_US-amy-medium` (`.onnx` + `.onnx.json`) |
-| Face detect + recognize | `perception/` | **OpenCV** YuNet + SFace (`ECHO_WITH_OPENCV`) | `face_detection_yunet.onnx`, `face_recognition_sface.onnx` |
-| Object/scene | `perception/` | **OpenCV** dnn (`ECHO_WITH_OPENCV`) | `mobilenet_v2.onnx` (optional) |
-| HUD overlay + mic/speaker I/O | `apps/hud-compositor/`, `voice-ui/`, `sensor-pipeline/` | **SDL2** (`ECHO_WITH_SDL`, +`SDL2_ttf` for subtitles) | — |
-
-Notes on the choices:
-- **Wake word — openWakeWord (default) with Porcupine as a production option.**
-  Both sit behind the same `IWakeWord` interface; pick with
-  `-DECHO_WAKEWORD_BACKEND=openwakeword|porcupine` (default `openwakeword`).
-  **openWakeWord** is the default because it is entirely **account-free** — an
-  Apache-2.0 three-stage ONNX pipeline (`melspectrogram` → Google `speech_embedding`
-  → per-keyword classifier) on MIT-licensed **ONNX Runtime**, all anonymously
-  fetchable — which is exactly why it is the backend CI can exercise (Phase 13). It
-  ships the pretrained **"hey jarvis"** model; a custom "Hey ECHO" model is a
-  training follow-up (see [`MANIFEST.md`](MANIFEST.md)). **Porcupine** stays
-  available for production: it has the simpler local C API and higher accuracy, but
-  needs a **free AccessKey** obtained once from the Picovoice console (a one-time
-  *setup* step, validated **offline** — no audio leaves the device at runtime; put
-  the key in `models/porcupine_access_key.txt` or `$PV_ACCESS_KEY`). Either detector
-  runs continuously on the mic at negligible idle CPU.
-- **ASR** streams as batch-on-silence for this phase: the engine spots the wake
-  word, captures until ~700 ms of trailing silence, then transcribes the
-  utterance (energy-based endpointing in `perception/src/perception_engine.cpp`).
-- **Reasoning** runs the LLM **only after** the confidence-threshold safe-mode
-  gate passes, and it also emits an optional `[route:<app>]` tag so the runtime
-  can hand app-shaped requests to the apps layer. A failed or empty generation
-  falls back to safe mode — **the model never guesses** (principle #5, untouched).
-- **TTS** maps the scaffold's reassuring/neutral tone onto Piper's `length_scale`
-  so safe-mode replies are spoken a little slower and warmer.
-- **HUD** is a borderless, always-on-top SDL overlay near the bottom of the
-  screen rendering the **same three primitives** as the on-device compositor
-  (subtitle, one icon, a status dot) and nothing else. It runs on its own thread
-  and `present()` only copies the latest frame, so an app can never block or
-  crash the core loop (constraint #4).
-
-### Building the real stack
-
-The Phase 4 helper scripts automate the dependency bring-up (see
-[Phase 4](#phase-4-real-world-bring-up--validation) below):
-
-```powershell
-# 1. fetch/build whisper.cpp + llama.cpp, download the free models:
-.\scripts\setup_deps.ps1
-#    ...then do the manual steps it prints (OpenCV/SDL2, Piper binary, LLM gguf,
-#    and the account-gated Porcupine key + custom "Hey ECHO" wake word).
-# 2. configure with every ECHO_WITH_* ON, and build:
-.\scripts\build_real.ps1 -PorcupineRoot "<unpacked porcupine sdk>"
-```
-
-Or drive CMake directly:
-
-```bash
-# Everything on at once (needs all libs installed + models placed):
-cmake -S . -B build -DECHO_REAL_AI=ON
-# ...or pick engines à la carte, e.g. reasoning + TTS + HUD only:
-cmake -S . -B build -DECHO_WITH_LLAMA=ON -DECHO_WITH_PIPER=ON -DECHO_WITH_SDL=ON
-cmake --build build
-```
-
-Point CMake at any dependency that isn't on the default search path with the
-usual variables: `-DOpenCV_DIR=…`, `-DSDL2_DIR=…`, `-Dwhisper_DIR=…`,
-`-Dllama_DIR=…`, and `-DPORCUPINE_ROOT=<unpacked Porcupine SDK>`. See
-[`cmake/echo_ai.cmake`](cmake/echo_ai.cmake) for exactly how each is resolved.
-
-> **llama.cpp API drift.** If the `-DECHO_WITH_LLAMA=ON` build fails on one line
-> in [`cognitive-core/src/llm.cpp`](cognitive-core/src/llm.cpp) — the KV-cache
-> clear (`llama_memory_clear` / `llama_kv_self_clear` / `llama_kv_cache_clear`) —
-> your llama.cpp is a different API revision than the default. Reconfigure with
-> `-DECHO_LLAMA_KV_CLEAR=self` (early–mid 2025) or `=cache` (pre-2025). This is
-> the single call most likely to move between versions; the rest of the adapter
-> targets the current API.
-
-### Getting the models
-
-Place these under [`models/`](models/README.md) (see that file for the exact
-filenames and per-file env overrides). Sketch of the sources:
-
-```bash
-# whisper.cpp model (quantized English base):
-#   from the whisper.cpp repo:  ./models/download-ggml-model.sh base.en-q5_1
-#   -> copy ggml-base.en-q5_1.bin into echo-os/models/
-
-# llama.cpp instruct GGUF (example: Llama-3.2-3B-Instruct Q4_K_M) — download the
-#   .gguf from its model card, then:  cp <file>.gguf echo-os/models/llm.gguf
-
-# Piper voice:  download en_US-amy-medium.onnx AND en_US-amy-medium.onnx.json
-#   from the Piper voices release into echo-os/models/
-
-# OpenCV face models (YuNet + SFace) from the OpenCV Zoo, into models/ as
-#   face_detection_yunet.onnx and face_recognition_sface.onnx
-
-# Porcupine:  train a custom "Hey ECHO" keyword in the Picovoice console, download
-#   hey-echo.ppn + porcupine_params.pv into models/, and save your AccessKey to
-#   models/porcupine_access_key.txt
-
-# Enrolled faces (the demo test set): a photo per person, named after them:
-#   echo-os/models/faces/grace.jpg   ->  ECHO will say "That's Grace."
-```
-
-### Running the demo
-
-The demo binary is `echo-demo` (target `run_demo`), wired in
-[`apps/demo/echo_demo.cpp`](apps/demo/echo_demo.cpp). The wrapper scripts build
-and launch it and set the real-AI options for you:
-
-```bash
-# Windows (PowerShell):
-.\scripts\run_demo.ps1                 # real: webcam + mic + wake word + HUD overlay
-.\scripts\run_demo.ps1 -Mode stub      # no models needed: type commands, headless HUD
-
-# Linux / macOS:
-./scripts/run_demo.sh                   # real mode
-./scripts/run_demo.sh --mode stub       # stub mode
-```
-
-Or straight from CMake once configured: `cmake --build build --target run_demo`.
-Flags on `echo-demo`: `--window` (SDL HUD, default via scripts), `--text` (type
-utterances instead of speaking — no mic/wake needed), `--no-camera`,
-`--headless-hud`.
-
-> **Runtime DLL note (Windows).** Run with your build toolchain's `bin` **first**
-> on `PATH`, and put the dependency DLLs (`SDL2.dll`, OpenCV, `whisper.dll`,
-> `llama.dll`, Piper) beside the exe or on `PATH`. A mismatched `libstdc++`/
-> runtime from an unrelated tool (e.g. Git's bundled MinGW) on `PATH` ahead of
-> yours will crash the binary at startup — this is an environment/ABI issue, not
-> a bug in the demo.
-
-### Manual test flow
-
-With `models/` populated and a couple of faces enrolled, run
-`.\scripts\run_demo.ps1` and try:
-
-1. **Wake + reason.** Say **"Hey ECHO, what should I do now?"** → you hear a
-   short spoken reply and see it on the HUD. Ask something it can't know and it
-   deliberately falls to the calm safe-mode line instead of guessing.
-2. **Face recognition.** Look at the webcam with an enrolled person in frame and
-   say **"Hey ECHO, who is this?"** → it answers **"That's &lt;name&gt;."** and the
-   HUD shows the name with a ✓ status. An unknown face → "I don't recognize them
-   yet."
-3. **App routing.** Say **"Hey ECHO, play some music"** → routed to the mocked
-   media app, which speaks *"Now playing Kind of Blue by Miles Davis."* and draws
-   a ▶ icon + subtitle on the HUD.
-
-No mic set up yet? `.\scripts\run_demo.ps1 -Mode stub` (or `echo-demo --text`)
-lets you type the same utterances and exercises routing + the safe-mode gate with
-zero models installed.
-
-### Measured latency (fill from your run)
-
-Each turn's real timings are written to `latency_log.csv` and printed live; a
-min/avg/max summary prints on exit (see
-[`apps/demo/latency.hpp`](apps/demo/latency.hpp)). The per-stage **targets** below
-are the build-enforced budget from `common/include/echo/latency.hpp`; the
-**measured** column is intentionally left for you to populate from a handful of
-real runs on your hardware, so this table holds a real number, not a simulated
-one.
-
-Fill this in from **≥20 real end-to-end turns** (Phase 4, Step 4). Columns are
-min / avg / max across the run — copy them straight out of the on-exit summary;
-leave them blank until you have real numbers.
-
-| Stage | Target | Min | Avg | Max | CSV column |
-|-------|-------:|----:|----:|----:|------------|
-| Perception (wake + ASR) | 45 ms | _—_ | _—_ | _—_ | `perception_ms` |
-| Cognitive (LLM + gate) | 50 ms | _—_ | _—_ | _—_ | `cognitive_ms` |
-| Voice output (TTS start) | 18 ms | _—_ | _—_ | _—_ | `voice_ms` |
-| **End to end** | **120 ms** | _—_ | _—_ | _—_ | `total_ms` |
-
-**Gap analysis (fill after the run):** measured end-to-end **___ ms** vs. the
-120 ms target; the dominant stage was **___** (expected: cognitive — quantized
-LLM decode on a laptop CPU). Do **not** adjust the budget to match — record the
-real overrun. Forward-looking options to close the gap, as future work, *not*
-changes made in this phase:
-
-- a smaller / more aggressively quantized instruct model (e.g. 1–3B, Q4 → Q3);
-- streaming ASR instead of batch-on-silence, so transcription overlaps speech;
-- GPU offload (`n_gpu_layers`) where a discrete GPU is available;
-- a lighter wake-word / endpointing path to shave perception ms.
-
-> **Honest note on this deliverable.** Through Phase 3 the integrated pipeline
-> was verified only in **stub/text mode** (routing, the safe-mode gate, HUD
-> frames, and latency logging all confirmed working); the native models were
-> never run in the dev sandbox. Phase 4 is where the real libraries and weights
-> get installed on the laptop and the numbers above become real. Real quantized
-> LLM/ASR inference on a laptop CPU will very likely **exceed the 120 ms
-> budget** — when it does, the number stays as measured and the gap analysis
-> above explains it. The `StageTimer` overrun path and `latency_log.csv` are
-> exactly how that honest number is captured.
-
-### Swapping in the embedded-hardware versions later
-
-The engine seams are drawn so the laptop stand-ins swap for the on-SoC
-equivalents **without touching any module's interface** — only the
-`ECHO_WITH_*` option and the `echo::dep-*` target behind it change:
-
-| Laptop (Phase 3) | Embedded target |
-|------------------|-----------------|
-| Porcupine on the laptop mic | on-DSP keyword spotter (same `IWakeWord`) |
-| whisper.cpp on CPU/GPU | quantized ASR on the NPU (same `IAsr`) |
-| llama.cpp GGUF on CPU/GPU | quantized LLM via the SoC runtime (same `ILlm`) |
-| Piper subprocess + SDL audio | on-device TTS → PAM8403 amp (same `IVoiceUi`) |
-| OpenCV YuNet/SFace on the webcam | quantized CNN on the OV2640 stream (same `IVision`) |
-| SDL overlay window | the glasses' actual HUD (same `IHudCompositor` primitives) |
-
-Because each real path is a `#if defined(ECHO_WITH_*)` adapter behind an
-unchanged interface, the embedded build just defines a different option and links
-a different `echo::dep-*` — downstream modules never notice.
-
-## Phase 4: real-world bring-up & validation
-
-Phase 4 makes Phase 3 **real**: it installs the actual dependencies on the actual
-laptop, builds with every `ECHO_WITH_*` flag ON, fixes what real library versions
-surface, tunes the engines against real behavior, and records genuine measured
-numbers. No new features. The physical/hardware steps below are done on the
-laptop with a mic, speaker, and webcam in the loop — they can't be run in a
-headless sandbox, so this section is filled in **during** that bring-up, not
-before.
-
-**Ordered bring-up checklist**
-
-1. `.\scripts\setup_deps.ps1` — builds whisper.cpp + llama.cpp, downloads the free
-   models, writes `models/INSTALLED_VERSIONS.md`. Then do its printed manual steps:
-   OpenCV/SDL2 (vcpkg), the Piper binary, an instruct `.gguf`, and — the only
-   account-gated one — the Picovoice **AccessKey + custom "Hey ECHO" `.ppn`**.
-2. `.\scripts\build_real.ps1 -PorcupineRoot <sdk>` — configure all flags ON and
-   build warning-free. If the llama.cpp KV-clear line fails, add
-   `-KvClear self` (or `cache`) — see the note under *Building the real stack*.
-3. `.\scripts\run_demo.ps1` — run the real demo end to end and confirm each item
-   in [Manual test flow](#manual-test-flow) with real hardware.
-4. Run ≥20 real turns, then `.\scripts\analyze_latency.ps1` — it reads
-   `latency_log.csv` and prints the min/avg/max table + gap-analysis line ready to
-   paste into the [latency table](#measured-latency-fill-from-your-run) (it warns
-   if you logged fewer than 20 turns rather than pretend).
-5. Have one **non-founder** use it with no instructions beyond *"say 'Hey ECHO'
-   and talk to it."* Log every failure mode below.
-
-**Installed dependency versions** (Step 1 — fill from `models/INSTALLED_VERSIONS.md`,
-which `setup_deps` generates; document exact versions for the future embedded move):
-
-| Dependency  | Version / commit | Notes |
-|-------------|------------------|-------|
-| Toolchain (MinGW/GCC) | MinGW-w64 ucrt g++ **15.1.0** | measured Phase 6 (this dev laptop) |
-| CMake       | **4.0.2** | measured Phase 6 |
-| libcurl     | **8.21.0** | official curl win64-mingw (UCRT/SChannel); `ECHO_WITH_NETWORK=ON` compiles + links |
-| whisper.cpp | _fill (commit)_ | + `base.en-q5_1` model |
-| llama.cpp   | _fill (commit)_ | KV-clear variant: _current/self/cache_ |
-| OpenCV      | _fill_ | YuNet + SFace |
-| SDL2 / SDL2_ttf | _fill_ | |
-| Piper       | _fill (tag)_ | voice: `en_US-amy-medium` |
-| Porcupine   | _fill (SDK ver)_ | custom "Hey ECHO" `.ppn` |
-| LLM         | _fill (model + quant)_ | e.g. Llama-3.2-3B-Instruct Q4_K_M |
-
-**Wake-word tuning** (Step 3): Porcupine sensitivity starts at the library default
-— record what you actually observe (false accepts vs. missed wakes over a handful
-of tries) and the value you settle on here: _sensitivity = ___ ; rationale: ___._
-
-### Known Issues
-
-Observed failure modes from real runs (Steps 3–5). Keep this **honest and
-populated** rather than falsely clean — an accurate known-issues list is the most
-valuable output of this phase. Fill in as you find them; delete the placeholder
-once real entries exist.
-
-| # | Symptom | Where (stage/app) | Severity | Notes / next step |
-|---|---------|-------------------|----------|-------------------|
-| _—_ | _e.g. wake-word missed at conversational volume_ | _perception_ | _—_ | _—_ |
-
-_First outside-user test:_ tester (non-founder) — _date / who_; top confusions
-observed — _fill in_.
-
-## Phase 5: real third-party integrations
-
-Phase 5 replaces the mock Spotify / Gmail / Google-Search / YouTube backends with
-real network-facing ones, **behind the exact same `IApp` interfaces** the apps
-already exposed since Phase 2 — swapping the backend changes not one caller. The
-`--mock` default is untouched, so CI and the stub build stay deterministic and
-credential-free; real backends are opt-in.
-
-> ⚠️ **Prerequisite — not yet satisfied at time of writing.** This phase builds
-> network integrations *on top of* the reasoning pipeline, so that pipeline must
-> already be trustworthy: Phase 4's real-hardware bring-up (≥20 measured turns, a
-> real mic/speaker/webcam demo, a non-founder tester) must be **done and recorded**
-> first. As of this commit the [Phase 4](#phase-4-real-world-bring-up--validation)
-> validation tables are still unfilled — so the "run it for real" parts of this
-> section (the live credentialed test, the observed Known Issues) are written as
-> **procedures to execute, not results claimed.** Do not tick them off until they
-> have actually run.
-
-### What was built
-
-- **`apps/appkit/`** — the shared toolkit every real backend links: the single
-  network boundary (`net::IHttpClient`, libcurl behind `ECHO_WITH_NETWORK`), a
-  minimal JSON reader, URL/base64 encoding, `.env`/credential loading, an OAuth
-  token cache, the **confirm-before-action gate**, and headless readability
-  extraction. Everything except the libcurl transport is dependency-free and
-  **unit-tested** (`echo-appkit-tests`).
-- **Real backends** for `media` (Spotify Web API), `mail` (Gmail API), `search`
-  (Google Custom Search), `browser` (live fetch + on-device readability, reusing
-  the search result set), and `video` (YouTube Data API). Each app now selects a
-  mock or real backend from the same `--mock`/`--real` flag; a missing credential
-  or absent network transport degrades to a calm spoken line, never a crash
-  (constraint #2).
-
-### The two switches: `--mock` and `ECHO_WITH_NETWORK`
-
-Real backends need **both** the runtime `--real` flag **and** a build compiled with
-the network transport:
-
-```bash
-# Stub/CI build (default): no libcurl, no sockets, backends report Unavailable
-cmake -S apps -B build-apps -G "MinGW Makefiles"
-
-# Real build: compile the libcurl transport (needs libcurl installed)
-cmake -S apps -B build-apps -G "MinGW Makefiles" -DECHO_WITH_NETWORK=ON
-```
-
-At runtime, `echo-apps --real` asks each app for its real backend; without
-`ECHO_WITH_NETWORK` the HTTP client is null and every real backend cleanly reports
-`Unavailable` (so `--real` on a stub build degrades, it does not lie).
-
-> **Compile status (updated Phase 6):** both builds now compile and pass `ctest` in
-> this repo's toolchain. The `-DECHO_WITH_NETWORK=ON` transport in
-> [`http.cpp`](apps/appkit/src/net/http.cpp) was previously written-but-uncompiled;
-> it is now built and linked against **libcurl 8.21.0** (official curl win64-mingw,
-> UCRT/SChannel — provisioned by `scripts/setup_deps.ps1`). The whole project links
-> it, the app binaries import `libcurl-x64.dll`, and all suites are green. What is
-> still **not** proven is the *live* API traffic — no Spotify/Gmail/Search/YouTube
-> call has run against real credentials yet; that remains the credentialed real run.
-
-### Obtaining each credential (and under which account)
-
-Copy [`.env.example`](.env.example) to `.env` (gitignored — **never commit it**)
-and fill it in. Record in `.env.example`'s "Registered under" lines which account
-owns each developer app — this matters later for company-vs-personal ownership of
-the API credentials.
-
-| Service | Where to register | Key variables | Scopes / notes |
-|---------|-------------------|---------------|----------------|
-| **Spotify** | [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) → create app | `ECHO_SPOTIFY_CLIENT_ID`, `ECHO_SPOTIFY_CLIENT_SECRET`, `ECHO_SPOTIFY_REDIRECT_URI` | Add the redirect URI to the app settings verbatim |
-| **Gmail** | Google Cloud Console → enable **Gmail API** → OAuth consent + OAuth client (Desktop) | `ECHO_GMAIL_CLIENT_ID`, `ECHO_GMAIL_CLIENT_SECRET` | Request **only** `gmail.readonly` + `gmail.send` — nothing broader |
-| **Google Search** | Google Cloud → enable **Custom Search API**; create a Programmable Search Engine | `ECHO_GOOGLE_SEARCH_KEY`, `ECHO_GOOGLE_SEARCH_CX` | `CX` is the search-engine id |
-| **YouTube** | Same Cloud project → enable **YouTube Data API v3** | `ECHO_YOUTUBE_API_KEY` | Falls back to the search key if unset |
-
-### OAuth flow choice (and why)
-
-Both Spotify and Gmail use the **Authorization Code flow with a loopback redirect**
-(`http://127.0.0.1:8888/callback`), not device-code. Rationale for a headless
-glasses context: Spotify has no device-code grant, and loopback is the flow both
-providers recommend for a native app that can pop a browser **once**. On the
-glasses that one-time consent happens during pairing on the companion phone/laptop
-— not on the device — after which the cached **refresh token** drives silent
-renewals and the glasses never show a browser again. So the interactive consent is
-a documented, one-time setup step; the backends implement everything after it
-(token exchange, silent refresh, and the API calls themselves).
-
-**One-time authorize (manual, per service):** open the authorize URL the backend
-builds (`spotify_authorize_url(...)` / the Gmail equivalent) in a browser, approve,
-copy the `code` from the loopback redirect, exchange it once for tokens, and let
-the token store cache them under `ECHO_TOKEN_DIR` (`.echo-tokens/`, gitignored).
-_A small `scripts/authorize.ps1` helper to script this loopback capture is a
-follow-up; until then it is a manual paste, documented here rather than faked._
-
-### Confirm-before-send (constraint #1)
-
-No email is ever sent on a single utterance. `"reply saying <text>"` **stages** the
-message and speaks it back — *"Ready to reply to Dr. Alvarez: '…'. Say 'send' to
-confirm, or 'cancel'."* — and only an explicit **"send"/"confirm"** actually sends.
-An explicit "cancel", an unrelated command, or an unrecognized word all **fail
-safe**: nothing is sent and the pending action is cleared (it is one-shot, so a
-later stray "yes" can't resurrect it). This gate
-([`apps/appkit/.../confirmation.hpp`](apps/appkit/include/echo/apps/confirm/confirmation.hpp))
-is the one piece of Phase 5 fully covered in CI — the live send can't run there,
-but the gate that guards it is exercised by both `echo-appkit-tests` (the gate in
-isolation) and `echo-apps-smoke` (`test_send_email_confirmation_gate`, the whole
-reply→confirm flow through the real `MailApp` with a mock backend).
-
-### Secret hygiene (constraint #3)
-
-`.env` and `.echo-tokens/` are gitignored; only `.env.example` (no real values) is
-tracked. Run the credential scan before every push — it blocks the commit if an API
-key, OAuth secret, token file, or `.env` is about to enter the repo:
-
-```bash
-bash scripts/check_secrets.sh
-```
-
-```bash
-powershell -File scripts/check_secrets.ps1
-```
-
-Wire it as a hook with `ln -sf ../../scripts/check_secrets.sh .git/hooks/pre-commit`.
-
-### Manual test flow — real credentialed run (to run once, then record here)
-
-⚠️ **Not yet run.** These steps need real credentials on a laptop with the network
-build; they cannot run in CI. Execute once and paste the evidence
-(screenshot/log) into the table — do not tick them off unclaimed.
-
-1. **Spotify playback by voice.** `echo-apps --real` → *"play some music"* → real
-   playback starts and the HUD shows real now-playing metadata. Evidence: _fill_.
-2. **A real unread email read aloud.** *"read my unread email"* → the latest real
-   unread sender + subject are spoken. (As of Phase 6 the greedy-`read` misroute is
-   fixed — see Known Issue 8 — so the natural phrasing now works.) Evidence: _fill_.
-3. **A real search summarized aloud.** *"search for …"* → the top real result is
-   **summarized**, not dumped. Evidence: _fill_.
-4. **Confirm-before-send, end to end.** *"reply saying …"* then *"send"* → a real
-   email is sent; repeat with *"cancel"* and confirm nothing sends. Evidence: _fill_.
-
-| Test | Ran? (date) | Evidence (screenshot/log) | Result |
-|------|-------------|---------------------------|--------|
-| Spotify playback | _—_ | _—_ | _—_ |
-| Unread email read | _—_ | _—_ | _—_ |
-| Search summarized | _—_ | _—_ | _—_ |
-| Send-email confirm gate | _—_ | _—_ | _—_ |
-
-### Known Issues (real APIs, real failure modes)
-
-Real APIs surface failure modes mocks never could — rate limits, token expiry,
-network flakiness. The rows below are **anticipated** and how the code is meant to
-handle them; replace/annotate each with what you **actually observe** on the real
-run (and add the ones you didn't predict). Keep this honest rather than falsely
-clean.
-
-| # | Failure mode | Anticipated handling | Observed? |
-|---|--------------|----------------------|-----------|
-| 1 | OAuth access token expired mid-session | silent refresh via cached refresh token before each call | _not yet run_ |
-| 2 | Refresh token revoked / consent withdrawn | backend reports `Unavailable` → calm "I can't check email right now" | _not yet run_ |
-| 3 | API rate limit / quota (HTTP 429) | request completes with non-2xx → degrade, no crash | _not yet run_ |
-| 4 | Network timeout / DNS / TLS failure | transport failure (status 0) → `HardwareError` → degrade | _not yet run_ |
-| 5 | Spotify "no active device" for playback control | control call is best-effort; `current()` reports true state | _not yet run_ |
-| 6 | ASR mishears the reply body before "send" | user hears the staged summary and can "cancel"; nothing sends without explicit "send" | _not yet run_ |
-| 7 | Stale pending reply if user switches apps then says "send" later | gate is one-shot per compose; residual risk — _watch for this on the real run_ | _not yet run_ |
-| 8 | ~~Greedy first-token NLU: *"read my unread email"* matches `read` (browser) before `unread` (mail)~~ | **FIXED in Phase 6** — NLU is now specificity-aware: the browser's generic `read`/`open` yield to a domain-specific intent elsewhere in the utterance. Regression test `echo-nlu-routing` covers the exact phrase + variants. | resolved |
-
-_First real credentialed run:_ _date / who_ — _fill in after it happens._
-
-## Status
-
-Phase 3 makes the **core intelligence real** on a laptop while keeping the
-scaffold's contracts intact. The safe-mode gate, the lock-free ring buffer, the
-latency-budget model, and the apps-layer isolation are all **unchanged**; the
-real engines are additive adapters behind their existing interfaces.
-
-### What's real vs. stubbed
-
-- **Real:** module boundaries and interfaces; the lock-free ring buffer; the
-  latency-budget model; the safe-mode gate logic; the boot/runtime wiring; the
-  smoke tests; and — new in Phase 3 — the wake-word / ASR / LLM / TTS / face+
-  object adapters (whisper.cpp, llama.cpp, Piper, Porcupine, OpenCV), the SDL
-  laptop HUD overlay, real webcam/mic capture, the integrated `echo-demo`, and
-  end-to-end latency logging. All default OFF so the dependency-free stub build
-  still compiles and the reference `echo-os` binary + CI stay deterministic.
-- **New in Phase 5 (code real, live run pending):** real Spotify/Gmail/Search/
-  YouTube backends behind the existing app interfaces, plus the `appkit` toolkit
-  (HTTP boundary, JSON, credentials, OAuth token cache, confirm-before-action gate,
-  readability). The request-building, response-parsing, credential loading, and the
-  confirmation gate are **unit-tested in CI**; the libcurl transport is opt-in
-  (`-DECHO_WITH_NETWORK=ON`) and the actual live API calls have **not yet been run
-  against real credentials** (blocked on Phase 4 hardware validation — see the
-  Phase 5 prerequisite note).
-- **Still stubbed (`TODO`):** the on-glasses sensor DMA frontends and the BLE/
-  WiFi companion transport (hardware phase); the scripted one-time OAuth authorize
-  helper (`scripts/authorize.*`) — currently a documented manual step.
-
-## License
-
-Inherits the parent ECHO project's [MIT License](../LICENSE).
+Without `--hindsight` the same question gets *"I don't have a record of that, so I'd
+rather not guess."* On Windows, run from a *Developer PowerShell for VS*; the whole tree
+builds clean with MSVC 14.51 + Ninja.
+
+## Under the hood
+
+- **Grounding rule (Phase 21, unchanged).** A question about the wearer's own life is
+  answered from the record or not at all; the LLM is never consulted. Long-term memory
+  widens *the record*, not *or not at all*.
+- **Writes only on the confident path.** Nothing below the 0.72 input-confidence gate is
+  retained; questions never are (`memory::is_question`). Namings and statements are.
+- **Fail-safe by construction.** `recall_answer()` returns `nullopt` for "nothing",
+  "down" and "timed out" alike, so a caller can only answer from memory or abstain. The
+  Python wrapper returns `None`, with a deadline on every read and a 60 s back-off after
+  a failure.
+- **Never blocks the loop.** Retains go through a queue on a worker thread (C++) or a
+  dedicated lane (Python). Reflect takes 5–12 s, so memory answers are a separate path
+  from the 120 ms reflex budget, never part of it.
+- **Keys stay out of C++.** The bridge owns the key and the SDK on `127.0.0.1`. The C++
+  side speaks JSON through `net::IHttpClient`, falling back to the `curl` CLI when built
+  without libcurl.
+- **Tested.** [`tests/long_term_memory_test.cpp`](tests/long_term_memory_test.cpp) drives
+  the real core and store with a fake LLM and a fake backend: hit answers and the model
+  is never asked; miss, empty and dead backend abstain; the store still wins; statements
+  and namings are retained, questions and shaky transcripts are not. 18/18 suites pass.
+
+| Path | What's there |
+|---|---|
+| `echo-esp32-firmware/` | ESP32-CAM firmware, `echo_brain.py`, `hindsight_memory.py`, `guide_agent.py`, `llm_client.py`, `demo/` |
+| `memory/` | On-device encrypted store, `long_term_memory.hpp` |
+| `cognitive-core/` | Safe-mode gate, grounding, LLM orchestration |
+| `apps/demo/` | `echo-demo`, `hindsight_ltm.cpp` (bridge client) |
+| `scripts/hindsight_bridge.py` | Local bridge between C++ and Hindsight |
+| `docs/` | [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md) · [Engineering log](docs/ENGINEERING.md) · [Runbook](docs/RUNBOOK.md) · [Demo transcripts](docs/hindsight) |
+
+> [!IMPORTANT]
+> **Honest status.** This is a hackathon prototype on top of a larger research codebase.
+> The story is synthetic. The ESP32 upload cycle in `app_main.c` is currently disabled,
+> which is why the demo is hardware-free. Reflect latency (5–12 s, Hindsight Cloud)
+> suits the touch-and-wait interaction, not live conversation. A dead network costs one
+> full read timeout before the back-off kicks in. Nothing here is a medical device.
+
+## Privacy
+
+Memory is **off unless turned on**, per wearer (`ECHO_HINDSIGHT=on`). When on, only text
+leaves the device: transcripts, names, relationship and place labels, and guide outcomes.
+Never camera frames, face images or descriptors, audio, WiFi fingerprints, EEG, or the
+encrypted on-device store. Point `HINDSIGHT_BASE_URL` at a self-hosted `hindsight-api`
+and nothing leaves the household at all. Full reasoning and trade-offs:
+[ADR-22](docs/DECISIONS.md).
+
+---
+
+<p align="center">
+  <sub>
+    Built on <a href="https://github.com/Satyabrat2005/echo-os">ECHO OS</a> for the
+    Hindsight hackathon by Vectorize. Long-term memory by
+    <a href="https://github.com/vectorize-io/hindsight">Hindsight</a>.<br>
+    The ECHO OS codebase declares the parent project's MIT license; no LICENSE file
+    is included in this repository yet.
+  </sub>
+</p>

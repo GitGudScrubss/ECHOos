@@ -180,12 +180,14 @@ def mode_compare(bank, sides):
 def replay(bank, at_checkpoint):
     """Replay the story into a fresh bank, calling at_checkpoint(ltm, day,
     total) on day 1, 5 and 20 so the same thing can be asked as memory grows."""
+    # A new bank per run: deleting and re-creating one id is not immediate on
+    # the server, and leftovers from an earlier run would leak into day 1.
+    bank = f"{bank}-{time.strftime('%Y%m%d-%H%M%S')}"
     ltm = make_ltm(bank)
     if not ltm.enabled:
         sys.exit(f"! {ltm.describe()}")
     print(f"Fresh bank '{bank}'. Replaying Margaret's life and asking the same "
           "things as it grows.\n")
-    ltm.delete_bank()
     done = 0
     for day in CURVE_DAYS:
         new = [e for e in story.EVENTS if done < e[0] <= day]
@@ -196,6 +198,7 @@ def replay(bank, at_checkpoint):
               f"in {time.time() - t:.0f}s" + (f"  ! {err}" if err else ""))
         done = day
         at_checkpoint(ltm, day, total)
+    ltm.delete_bank()                  # replays are throwaway
     ltm.close()
 
 

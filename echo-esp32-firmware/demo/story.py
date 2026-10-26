@@ -21,20 +21,43 @@ from datetime import datetime, timedelta, timezone
 WEARER = "Margaret"
 TODAY = 20
 
+def slug(text):
+    # Same rule as hindsight_memory.slug, so tags line up with the brain's.
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def when(day, now=None):
+    """Back-date a story day so that day TODAY is now (late afternoon)."""
+    now = now or datetime.now(timezone.utc)
+    base = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    return base - timedelta(days=TODAY - day)
+
+
+def ordinal(n):
+    return f"{n}{'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def on_day(day):
+    """'Wednesday the 28th' for a story day, so dates said in conversation
+    line up with the back-dated timestamps whenever the demo is run."""
+    d = when(day)
+    return f"{d:%A} the {ordinal(d.day)}"
+
+
 EVENTS = [
     # ---- week 1 -------------------------------------------------------------
     (1, "conversation", "Priya", "home",
      "Hi Mum, it's Priya. I've put the new glasses on the charger by your bed. "
      "I'll come every Sunday afternoon now that the job in Pune is finished."),
     (1, "conversation", "Priya", "home",
-     "Arjun's school play is on Friday the 6th at four o'clock, he's playing the "
+     f"Arjun's school play is on {on_day(6)} at four o'clock, he's playing the "
      "lion. I'll pick you up at half past three."),
     (2, "conversation", "Mr. Okafor", "home",
      "Morning Margaret, it's Daniel from number 12. I'll water your tomato plants "
      "while the heatwave lasts, I have the spare key you gave me."),
     (3, "conversation", "Dr. Rao", "City Neuro Clinic",
      "Your memory scores are stable since March. I'd like to see you again in "
-     "three weeks, on Wednesday the 28th at 10:30, and bring your medication list."),
+     f"about three weeks, on {on_day(22)} at 10:30, and bring your medication list."),
     (3, "note", None, "City Neuro Clinic",
      "The receptionist at the clinic is called Joy, she has the red glasses."),
     (4, "task", None, "home",
@@ -42,7 +65,7 @@ EVENTS = [
      "they are in the green tin left of the kettle. She needed every step."),
     (5, "conversation", "Priya", "home",
      "I've written your appointments on the calendar on the fridge. Dad's "
-     "birthday would have been on the 11th, we could go to the garden at St. "
+     f"birthday would have been on the {ordinal(when(11).day)}, we could go to the garden at St. "
      "Mary's together if you'd like."),
     (5, "task", None, "home",
      "Making tea: Margaret filled the kettle but forgot to switch it on at the "
@@ -100,18 +123,6 @@ EVENTS = [
      "Making tea: completed alone in the yellow mug; asked for help once, "
      "unsure if the kettle had boiled. 'Wait for the click' was enough."),
 ]
-
-
-def slug(text):
-    # Same rule as hindsight_memory.slug, so tags line up with the brain's.
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-
-
-def when(day, now=None):
-    """Back-date a story day so that day TODAY is now (late afternoon)."""
-    now = now or datetime.now(timezone.utc)
-    base = now.replace(hour=16, minute=0, second=0, microsecond=0)
-    return base - timedelta(days=TODAY - day)
 
 
 def as_memory(event):

@@ -200,6 +200,31 @@ bounded on the existing scheduler tick (event log by count+age; notes cap-and-ev
 See [ADR-14](DECISIONS.md) and [ADR-15](DECISIONS.md); the earlier permission-only
 baseline was [ADR-13](DECISIONS.md).
 
+### Long-term episodic memory (Hindsight, opt-in)
+
+The store above answers structured questions and abstains on the rest. An optional
+second source of record, [`memory::ILongTermMemory`](../memory/include/echo/memory/long_term_memory.hpp),
+holds free-text memories (what was said, by whom, where, when) and is recalled by
+meaning. The cognitive core asks it only after the store has no answer to a
+self-referential question or a `[route:memory]` reply. It speaks only a positive hit,
+prefixed "From your memory:", and otherwise abstains exactly as before. Writes happen
+only past the 0.72 input gate: namings and statements, never questions.
+
+```
+cognitive core ──ILongTermMemory──▶ HindsightBridgeMemory (apps/demo, worker thread)
+                                        │ JSON over 127.0.0.1
+                                        ▼
+                                 scripts/hindsight_bridge.py ──▶ Hindsight (cloud or self-hosted)
+                                        ▲
+ESP32 brain (echo_brain.py, guide_agent.py) ──hindsight_memory.py──┘
+```
+
+The production backend is Hindsight (retain / recall / reflect). The ESP32 brain uses
+it directly through `hindsight_memory.py` for person cards, questions about the past,
+and the step-by-step task guide. The C++ core reaches it through a local bridge that
+owns the API key. Off unless enabled; text only; every failure is "no answer".
+See [ADR-22](DECISIONS.md) and the [README](../README.md).
+
 ### Fault tolerance & graceful degradation (Phase 17)
 
 The safe-mode gate above answers *"the engine responded, but I'm not confident."*

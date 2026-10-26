@@ -619,6 +619,52 @@ constructs the no-arg, disabled `ICompanionSync`) — deliberately left out of t
 a wiring/product decision orthogonal to at-rest crypto, and because the only real transport (BLE)
 is itself a documented stub, so wiring the key alone wouldn't yield working end-to-end delivery.
 
+## ADR-22 — Long-term episodic memory via Hindsight: opt-in, text only, grounded or silent (amends ADR-5)
+*Decided: 2026-10-26*
+
+**Decision.** ECHO gains an optional long-term memory backed by
+[Hindsight](https://hindsight.vectorize.io) (retain / recall / reflect). On the ESP32
+brain it retains every conversation in full, first meetings, named places and
+statements, and uses reflect for the person card ("who is this to me, and what is
+open between us?"), for questions about the past, and for the step-by-step task
+guide. In the C++ core it sits behind a new `memory::ILongTermMemory` seam, asked
+only after the on-device store has no answer. It is **off unless the wearer (or
+their carer) turns it on** (`ECHO_HINDSIGHT=on`, `echo-demo --hindsight`).
+
+What leaves the device when on: **text only** — transcripts, names, relationship
+labels, place names, guide outcomes. Never camera frames, face images or
+descriptors, audio, WiFi fingerprints, EEG, or anything from the encrypted store.
+ADR-5's interface-shape guarantee still holds for sensor data: `ILongTermMemory`
+takes `std::string`s, and nothing that produces a `SensorFrame` can reach it.
+
+**Why.** The store answers structured questions (who is this, what's due) and
+abstains on everything else — correctly, but permanently: "where did I leave my
+keys?" can never be answered because nobody stored the sentence that answers it.
+A memory that grows with the wearer is the product's core promise; the
+demo shows the same question going from "I don't have a record of that" (day 1)
+to a dated, specific answer (day 20). Memory beats fine-tuning here because the
+facts change daily, are about one person, must be deletable, and must be traceable
+to what was actually said (reflect returns the facts it used).
+
+**Grounding is preserved.** ADR-4 / Phase 21: a question about the wearer's own
+life is answered from the record or not at all. Long-term memory widens "the
+record" but not "or not at all": the core speaks a long-term answer only when the
+backend positively returns one (the bridge asks reflect for structured
+`{found, answer}`), labelled "From your memory:", and the LLM is still never asked.
+Writes happen only past the 0.72 input gate, and never for questions.
+
+**Fail-safe.** Every call has a deadline; failure of any kind is `None`/`nullopt`
+and the device behaves exactly as before. After a failed read the brain backs off
+for 60 s, so a dead network costs one timeout, not one per touch.
+
+**Honest trade-off.** This is the first path on which the wearer's words leave the
+device, and Hindsight Cloud is a third party. Mitigations: opt-in per wearer; one
+bank per wearer, deletable in one call (`delete_bank`); the API key lives only in
+the Python side (never in the C++ binary); and Hindsight is open source, so
+`HINDSIGHT_BASE_URL` can point at a self-hosted `hindsight-api` and nothing leaves
+the household. Cloud latency (reflect is 5–12 s) is outside the 120 ms budget, so
+memory answers are a slower, separate path from the reflex loop, never on it.
+
 ---
 
 *To add an entry: append with the next ADR number, a date, the decision, the why,
