@@ -3,6 +3,7 @@
 #include "echo/json.hpp"
 #include "echo/log.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
