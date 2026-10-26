@@ -1,0 +1,788 @@
+# ECHO OS — Continuous Integration (Phase 7 + Phase 8)
+#
+# The safety net that makes "run the full test suite before every merge" automatic
+# and mandatory instead of a thing someone has to remember. Runs on every push and
+# every pull request targeting master.
+#
+# Phase 7 jobs (build + test + secrets):
+#   1. stub-build    — the dependency-free CI baseline (every ECHO_WITH_*/ECHO_REAL_AI
+#                      flag OFF). Zero external deps, zero secrets. This job must ALWAYS
+#                      be green; every future phase depends on it as the floor.
+#   2. network-build — configures -DECHO_WITH_NETWORK=ON, installs libcurl, and runs the
+#                      appkit + apps suites. Proves the Phase 5/6 network branch compiles
+#                      and passes on a clean machine, not just a developer's laptop.
+#   3. secret-scan   — runs the existing scripts/check_secrets.sh rules on every PR so a
+#                      credential can never land in the repo, even if a future session
+#                      forgets to run the check manually.
+#
+# Phase 8 jobs (static analysis, fuzzing, coverage) — the automated backstop for the
+# bug class Phase 6 caught by hand (JSON unbounded recursion, Gmail header injection):
+#   4. clang-tidy    — bugprone-/cert-/clang-analyzer-security ruleset over first-party
+#                      sources; findings are hard errors (see .clang-tidy). Configure-only,
+#                      no compile, so it is fast.
+#   5. cppcheck      — a second, differently-implemented analyzer over the compile
+#                      database; different tools catch different things.
+#   6. fuzz-json     — bounded (~2 min each) libFuzzer runs against Json::parse and, since
+#                      Phase 22, the caregiver command decoder, under ASan/UBSan and
+#                      seeded from checked-in corpora. The parser eats untrusted network
+#                      bytes and already had a crash bug; this catches the next one.
+#   7. coverage      — gcov/gcovr over the test build; publishes an HTML/XML report artifact
+#                      and the line-coverage % to the run summary (and Codecov for the badge).
+#
+# All Phase 8 jobs are additive CI-only steps: none is required for a local dev build,
+# so the stub build stays zero-dependency (constraint #1).
+#
+# DELIBERATELY EXCLUDED — the real local-AI matrix (ECHO_REAL_AI=ON with
+# whisper.cpp / llama.cpp / Porcupine / Piper). That build needs multi-gigabyte model
+# downloads and, for Porcupine, an account-gated Picovoice access key. Neither belongs
+# in CI: the downloads blow the time budget and the key is a secret we will not put in a
+# workflow. The stub build above is the deliberate dependency-free proxy that exercises
+# the same code paths with stub adapters. See the README "CI" section for how to add real
+# local-AI coverage later, once model hosting/caching is worked out.
+#
+# NOTE ON SECRETS: this file contains no secrets and needs none. The network job installs
+# libcurl from the runner's package manager and does not make live API calls — it only
+# compiles and runs the dependency-free unit/smoke tests, which never touch a real
+# credential.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels an in-flight run — faster feedback, less
+# wasted runner time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Stub build — the always-green baseline. No external dependencies, no secrets.
+  #    All ECHO_WITH_*/ECHO_REAL_AI flags stay at their default OFF, exactly as the
+  #    dependency-free default has built since Phase 1.
+  # ---------------------------------------------------------------------------
+  stub-build:
+    name: Stub build (no deps) + full ctest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools (cmake, ccache)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+
+      # Cache compiled objects across runs so PRs don't rebuild from scratch every
+      # time (constraint #2, fast feedback). ccache keys on compiler + source, so it
+      # stays correct across CMake reconfigures.
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-stub-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-stub-${{ runner.os }}-
+
+      - name: Configure (all engine flags OFF — the dependency-free default)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # The longevity soak (echo-soak) runs in its own time-bounded job below, so the
+      # always-green baseline stays fast — exclude it here (same scoping the real-LLM job
+      # uses for its heavier work).
+      - name: Test (full suite, minus the long soak)
+        run: ctest --test-dir build --output-on-failure -E soak
+
+  # ---------------------------------------------------------------------------
+  # 2. Network build — validates the Phase 5/6 real-integration branch compiles and
+  #    passes on a clean machine. Installs libcurl, configures -DECHO_WITH_NETWORK=ON,
+  #    and runs the appkit + apps suites: JSON parsing (incl. the deep-nesting overflow
+  #    guard), the Gmail header-injection regression test, the confirm-before-action
+  #    gate, and the NLU mail/browser routing fix. No live API calls — the tests are
+  #    dependency-free and credential-free; libcurl only needs to link.
+  # ---------------------------------------------------------------------------
+  network-build:
+    name: Network build (ECHO_WITH_NETWORK=ON) + appkit/apps tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools + libcurl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache libcurl4-openssl-dev
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-network-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-network-${{ runner.os }}-
+
+      - name: Configure (ECHO_WITH_NETWORK=ON)
+        run: >
+          cmake -S . -B build-network
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DECHO_WITH_NETWORK=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-network --parallel
+
+      # Scope to the appkit + apps suites the network branch is about:
+      #   echo-appkit-tests  (JSON, URL, credentials, confirmation gate, readability)
+      #   echo-apps-smoke    (Gmail header-injection guard, confirmation gate end-to-end)
+      #   echo-nlu-routing   (Phase 6 mail/browser routing fix)
+      - name: Test (appkit + apps suites)
+        run: >
+          ctest --test-dir build-network --output-on-failure
+          -R "appkit|apps|nlu"
+
+  # ---------------------------------------------------------------------------
+  # 3. Secret-scan gate — runs the existing scripts/check_secrets.sh rules on every push
+  #    and PR. With nothing staged in CI, the script scans every tracked file (a superset
+  #    of the PR diff), so a real API key, OAuth secret, private key, token cache, or
+  #    committed .env fails the job and blocks merge. No secrets required to run.
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scan (check_secrets.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan tracked files for credentials
+        run: bash scripts/check_secrets.sh
+
+  # ---------------------------------------------------------------------------
+  # 4. clang-tidy — static analysis with a bugprone-/cert-/clang-analyzer ruleset
+  #    (.clang-tidy at the repo root), the family that flags the untrusted-data-into-
+  #    protocol-string pattern behind the Phase 6 header-injection bug. Findings are
+  #    hard errors (WarningsAsErrors in .clang-tidy). Configure-only: clang-tidy needs
+  #    just compile_commands.json, so there is no compile step and the job is fast.
+  # ---------------------------------------------------------------------------
+  clang-tidy:
+    name: clang-tidy (bugprone/cert/security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-tidy + cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang clang-tidy
+
+      # Configure with clang so the compile database carries clang-native flags
+      # (avoids gcc-only flags tripping clang-tidy's parser). No build needed.
+      - name: Configure (export compile_commands.json)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy over first-party sources
+        run: bash scripts/run_clang_tidy.sh build
+
+  # ---------------------------------------------------------------------------
+  # 5. cppcheck — a second, differently-implemented static analyzer over the same
+  #    compile database. Different engines catch different defects, so cppcheck runs
+  #    alongside clang-tidy rather than instead of it. --error-exitcode=1 fails the
+  #    job on any warning/performance/portability finding.
+  # ---------------------------------------------------------------------------
+  cppcheck:
+    name: cppcheck (static analysis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck + cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake cppcheck
+
+      - name: Configure (export compile_commands.json)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      # Drop the vendored SQLite amalgamation (memory/vendor/sqlite3) from the
+      # compile database before analysis: it is ~250k lines of upstream C we neither
+      # own nor fix, and scanning it would both slow the job and surface findings we
+      # will not act on. clang-tidy already excludes it via scripts/run_clang_tidy.sh.
+      - name: Drop vendored third-party from the compile database
+        run: |
+          python3 - <<'PY'
+          import json
+          p = "build/compile_commands.json"
+          db = json.load(open(p))
+          kept = [x for x in db if "vendor/sqlite3" not in x["file"].replace("\\", "/")]
+          json.dump(kept, open(p, "w"))
+          print(f"cppcheck scope: {len(kept)} first-party TUs "
+                f"({len(db) - len(kept)} vendored dropped)")
+          PY
+
+      # missingInclude(System) is suppressed because cppcheck cannot see the
+      # toolchain's system headers and it is not our code to fix; every other
+      # warning/performance/portability finding fails the job.
+      - name: Run cppcheck
+        run: >
+          cppcheck
+          --enable=warning,performance,portability
+          --inline-suppr
+          --suppress=missingIncludeSystem
+          --suppress=missingInclude
+          --std=c++17
+          --error-exitcode=1
+          --project=build/compile_commands.json
+          -j"$(nproc)"
+
+  # ---------------------------------------------------------------------------
+  # 6. fuzz — bounded, coverage-guided libFuzzer runs against the two decoders that
+  #    consume untrusted bytes:
+  #      * Json::parse, which eats untrusted network bytes and already had a crash bug
+  #        (the Phase 6 deep-nesting stack overflow);
+  #      * decode_command (Phase 22), the caregiver inbound path — the only decoder
+  #        whose output changes what the device does, so its harness also asserts the
+  #        field invariants of anything it ACCEPTS, not merely that it did not crash.
+  #    Both are built with Clang under Address/Undefined sanitizers and seeded from
+  #    checked-in corpora. Each is time-bounded to ~2 minutes so they never balloon CI
+  #    runtime (constraint #2); run them longer locally per apps/appkit/fuzz/README.md.
+  #    Any crash is uploaded as an artifact.
+  # ---------------------------------------------------------------------------
+  fuzz-json:
+    name: Fuzz untrusted decoders (libFuzzer, bounded)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang + cmake + ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-fuzz-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-fuzz-${{ runner.os }}-
+
+      # Global sanitizer flags instrument the code under test (echo-appkit / json.cpp)
+      # for coverage + ASan/UBSan; the fuzz target itself adds the libFuzzer main.
+      - name: Configure (fuzzers ON, Clang + sanitizers)
+        run: >
+          cmake -S . -B build-fuzz
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DECHO_BUILD_FUZZERS=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1"
+
+      - name: Build fuzz targets
+        run: cmake --build build-fuzz --target echo-json-fuzzer echo-command-fuzzer --parallel
+
+      - name: Fuzz JSON parser (bounded ~2 minutes)
+        run: |
+          mkdir -p fuzz-artifacts
+          ./build-fuzz/fuzz/echo-json-fuzzer \
+            apps/appkit/fuzz/corpus \
+            -max_total_time=120 -timeout=10 -rss_limit_mb=2048 \
+            -artifact_prefix=fuzz-artifacts/ -print_final_stats=1
+
+      # Phase 22. The caregiver command decoder, seeded with its own corpus of valid
+      # and near-valid commands. Runs even if the JSON fuzz above failed, so one
+      # finding does not hide another in a different decoder.
+      - name: Fuzz caregiver command decoder (bounded ~2 minutes)
+        if: always()
+        run: |
+          mkdir -p fuzz-artifacts
+          ./build-fuzz/fuzz/echo-command-fuzzer \
+            companion-sync/fuzz/corpus \
+            -max_total_time=120 -timeout=10 -rss_limit_mb=2048 \
+            -artifact_prefix=fuzz-artifacts/ -print_final_stats=1
+
+      - name: Upload crash artifacts (only if a crash was found)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz-artifacts/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 7. coverage — build the test suite with gcov instrumentation, run ctest, and turn
+  #    the counters into a report with gcovr. The line-coverage % goes to the run
+  #    summary (visible + trending in the Actions history on its own), the HTML/XML
+  #    report is uploaded as an artifact, and the XML feeds Codecov for the README
+  #    badge. Deliberately NOT gated on a threshold yet — the number is made visible
+  #    and trending first; a floor on a codebase this size would be premature.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Coverage (gcov/gcovr)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cmake + gcovr + ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcovr ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-coverage-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-coverage-${{ runner.os }}-
+
+      - name: Configure (coverage instrumentation ON)
+        run: >
+          cmake -S . -B build-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DECHO_COVERAGE=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-coverage --parallel
+
+      # Exclude the longevity soak: it is a duration/leak test, not a coverage-bearing
+      # one, and under gcov Debug instrumentation it would only slow this job. It has its
+      # own dedicated job.
+      - name: Test (full suite — generates the coverage counters)
+        run: ctest --test-dir build-coverage --output-on-failure -E soak
+
+      - name: Generate coverage report (gcovr)
+        run: |
+          mkdir -p coverage
+          # --print-summary writes the line/function/branch % to stdout (stable across
+          # gcovr versions); tee it so we can echo it into the run summary too.
+          gcovr --root . \
+            --exclude '.*/tests/.*' --exclude '.*/fuzz/.*' --exclude '.*/build.*' \
+            --exclude '.*/vendor/.*' \
+            --html-details coverage/index.html \
+            --xml coverage/coverage.xml \
+            --print-summary | tee coverage/summary.txt
+          # Surface the coverage % in the Actions run summary so the number is
+          # visible and trending natively, independent of any external service.
+          {
+            echo "### Code coverage";
+            echo '```';
+            grep -E '^(lines|functions|branches):' coverage/summary.txt || tail -n 3 coverage/summary.txt;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Non-blocking: the report is a convenience artifact. The coverage % is already
+      # in the run summary and the XML feeds Codecov, so an artifact hiccup (e.g. the
+      # account's Actions storage quota) must not redden the job.
+      - name: Upload coverage report artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      # Feeds the README coverage badge. Tokenless upload works for a public repo;
+      # non-fatal so a Codecov hiccup never reddens CI. Until the repo is enabled on
+      # Codecov (one-time, like the Phase 7 branch-protection step), the badge reads
+      # "unknown" while the % above is still visible in every run.
+      - name: Upload coverage to Codecov (badge source)
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+  # ---------------------------------------------------------------------------
+  # 8. real-engines (Phase 11 + 13) — verify the REAL local-AI engines, not the stubs.
+  #    This is the deliberately-heavier job the other jobs are the fast proxy for:
+  #    it turns ECHO_WITH_WHISPER/OPENCV/PIPER + (Phase 13) OPENWAKEWORD ON, downloads
+  #    the free models (whisper tiny.en, OpenCV YuNet+SFace, a Piper voice, the
+  #    openWakeWord ONNX pipeline + ONNX Runtime) + two public-domain face photos,
+  #    VERIFIES every one against a pinned SHA-256, and runs the tests/real_*_test.cpp
+  #    suite against real weights on the Phase 10 fixtures + Piper-synthesized speech.
+  #
+  #    Kept as its own job so it runs IN PARALLEL with the fast stub/network/
+  #    analysis jobs above and never gates their feedback (constraint #1). It is
+  #    heavier (a whisper.cpp source build + ~240 MB of models), so both the models
+  #    and the whisper build are cached; a warm run skips the downloads and rebuild.
+  #
+  #    Phase 13 closes the wake-word gap Phase 11 left open: openWakeWord is
+  #    account-free (Apache-2.0 models, MIT ONNX Runtime), so unlike Porcupine
+  #    (account-gated key — still out of scope, kept as a production option) it can
+  #    run here. STILL out of scope: any llama.cpp/full-LLM path lives in the
+  #    separate real-llm job, and all live mic/webcam/human behaviour — this
+  #    validates the engines RUN correctly on clean fixtures, not field robustness
+  #    (documented in docs/STATE.md).
+  #
+  #    Phase 19 adds an audio-ROBUSTNESS measurement to this same job: it generates +
+  #    checksum-verifies three synthetic noise beds, mixes them into the clips at
+  #    defined SNR levels, and runs tests/audio_robustness_test.cpp to record the real
+  #    engines' actual degradation (still synthetic noise on clean clips — not a real
+  #    room; that stays the open live-hardware gap in docs/STATE.md).
+  # ---------------------------------------------------------------------------
+  real-engines:
+    name: Real engines (whisper/OpenCV/Piper/openWakeWord) vs. fixtures
+    runs-on: ubuntu-latest
+    env:
+      WHISPER_TAG: v1.7.4
+      ASSETS_DIR: ${{ github.workspace }}/.real-engine-assets
+      WHISPER_INSTALL: ${{ github.workspace }}/.whisper-install
+    steps:
+      - uses: actions/checkout@v4
+
+      # OpenCV (>=4.6 on Ubuntu 24.04) ships YuNet (FaceDetectorYN) + SFace
+      # (FaceRecognizerSF) in libopencv-dev; SDL2 is only needed so the Piper
+      # voice lib links (playback is never exercised here); the rest is toolchain.
+      - name: Install build tools + OpenCV + SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache build-essential git \
+            libopencv-dev libsdl2-dev
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-real-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-real-${{ runner.os }}-
+
+      # Cache the verified model/asset set. Keyed on the fetch script, which
+      # contains the pinned URLs + checksums — so the key changes exactly when the
+      # asset set does ("cache by checksum", constraint #5). A hit skips ~230 MB of
+      # downloads; the fetch step below still re-verifies checksums either way.
+      - name: Cache real-engine assets
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ASSETS_DIR }}
+          key: real-assets-${{ hashFiles('scripts/fetch_real_engine_assets.sh') }}
+
+      # Cache the whisper.cpp build+install so the source build only happens when
+      # the pinned tag changes.
+      - name: Cache whisper.cpp install
+        id: whisper-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WHISPER_INSTALL }}
+          key: whisper-${{ runner.os }}-${{ env.WHISPER_TAG }}
+
+      - name: Fetch + verify models and face fixtures
+        run: bash scripts/fetch_real_engine_assets.sh "$ASSETS_DIR"
+
+      # whisper.cpp has no apt package; build the pinned tag from source and
+      # `cmake --install` it so ECHO's find_package(whisper CONFIG) resolves it.
+      - name: Build + install whisper.cpp (${{ env.WHISPER_TAG }})
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$WHISPER_TAG" https://github.com/ggerganov/whisper.cpp
+          cmake -S whisper.cpp -B whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$WHISPER_INSTALL"
+          cmake --build whisper.cpp/build --parallel
+          cmake --install whisper.cpp/build
+
+      # Synthesize the ASR "clear speech" clip with the real Piper voice we just
+      # fetched (no committed audio; license-clean). The phrase matches the
+      # keywords real_asr_test.cpp asserts on.
+      - name: Synthesize the ASR speech clip with Piper
+        run: |
+          export LD_LIBRARY_PATH="$ASSETS_DIR/piper:${LD_LIBRARY_PATH:-}"
+          echo "the quick brown fox jumps over the lazy dog" | \
+            "$ASSETS_DIR/piper/piper" \
+              --model "$ASSETS_DIR/voices/en_US-amy-medium.onnx" \
+              --output_file "$ASSETS_DIR/speech.wav"
+          ls -l "$ASSETS_DIR/speech.wav"
+
+      # Phase 13 wake-word clips: a POSITIVE ("hey jarvis" — the pretrained
+      # openWakeWord model's phrase; openWakeWord trains on Piper TTS, so this is an
+      # in-distribution positive) and a NEGATIVE ordinary sentence that must NOT
+      # trigger (tests for false accepts on real speech). Silence/garble negatives
+      # reuse the committed synthetic fixtures. The test resamples 22.05 kHz Piper
+      # audio to the 16 kHz openWakeWord expects.
+      - name: Synthesize the wake-word clips with Piper
+        run: |
+          export LD_LIBRARY_PATH="$ASSETS_DIR/piper:${LD_LIBRARY_PATH:-}"
+          echo "hey jarvis" | \
+            "$ASSETS_DIR/piper/piper" \
+              --model "$ASSETS_DIR/voices/en_US-amy-medium.onnx" \
+              --output_file "$ASSETS_DIR/wake_hey_jarvis.wav"
+          echo "what time is the next train to boston" | \
+            "$ASSETS_DIR/piper/piper" \
+              --model "$ASSETS_DIR/voices/en_US-amy-medium.onnx" \
+              --output_file "$ASSETS_DIR/not_wake_speech.wav"
+          ls -l "$ASSETS_DIR/wake_hey_jarvis.wav" "$ASSETS_DIR/not_wake_speech.wav"
+
+      # Phase 19: generate the deterministic noise beds the audio-robustness test
+      # mixes into the clips above, and VERIFY them against the SHA-256s pinned in
+      # MANIFEST.md (fail-closed — same "checksum before use" discipline as every
+      # fetched asset). The generator is integer-only, so CI reproduces the pinned
+      # bytes exactly. See tests/fixtures/make_noise_fixtures.py.
+      - name: Generate + verify noise beds (Phase 19)
+        run: |
+          python3 tests/fixtures/make_noise_fixtures.py "$ASSETS_DIR/noise" 4.0
+          cat > "$ASSETS_DIR/noise/SHA256SUMS" <<'EOF'
+          1d8076c5b58cb1635d3500e12b561338cfe2fb54654e6ebee23cab99bd824e6b  babble.wav
+          321467e41901a251af34c8fee30b214361deeed3b347f128058a2122acba338a  hum.wav
+          d5056b8ee3ddb8e36dc1edd695bacdc2122f29af43d40138646f85c28d462e80  transient.wav
+          EOF
+          ( cd "$ASSETS_DIR/noise" && sha256sum -c SHA256SUMS )
+
+      # whisper.cpp's installed whisper-config.cmake unconditionally set_and_check's
+      # WHISPER_BIN_DIR (${prefix}/bin), but with examples/tools OFF nothing is
+      # installed there, so the dir is absent and find_package() hard-errors. An
+      # empty bin/ satisfies the existence check. Runs on both a fresh build and a
+      # restored cache (which was populated before this fix), so no cache bust.
+      - name: Work around whisper-config bin-dir check
+        run: mkdir -p "$WHISPER_INSTALL/bin"
+
+      - name: Configure (ECHO_WITH_WHISPER + OPENCV + PIPER + OPENWAKEWORD ON)
+        run: >
+          cmake -S . -B build-real
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DECHO_WITH_WHISPER=ON
+          -DECHO_WITH_OPENCV=ON
+          -DECHO_WITH_PIPER=ON
+          -DECHO_WITH_OPENWAKEWORD=ON
+          -DONNXRUNTIME_ROOT="$ASSETS_DIR/onnxruntime-linux-x64-1.17.3"
+          -DCMAKE_PREFIX_PATH="$WHISPER_INSTALL"
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-real --parallel
+
+      # Run only the real-engine suite (echo-real-asr / -vision / -tts /
+      # -wakeword). The env points every adapter at the verified assets;
+      # LD_LIBRARY_PATH lets the Piper binary + libonnxruntime.so resolve.
+      - name: Test (real engines against fixtures)
+        env:
+          ECHO_WHISPER_MODEL: ${{ env.ASSETS_DIR }}/ggml-tiny.en.bin
+          ECHO_FACE_DETECT_MODEL: ${{ env.ASSETS_DIR }}/face_detection_yunet.onnx
+          ECHO_FACE_RECOG_MODEL: ${{ env.ASSETS_DIR }}/face_recognition_sface.onnx
+          ECHO_FACES_DIR: ${{ env.ASSETS_DIR }}/faces/enrolled
+          ECHO_FACE_ENROLLED_IMG: ${{ env.ASSETS_DIR }}/faces/enrolled/grace_hopper.jpg
+          ECHO_FACE_UNKNOWN_IMG: ${{ env.ASSETS_DIR }}/faces/astronaut.png
+          ECHO_PIPER_BIN: ${{ env.ASSETS_DIR }}/piper/piper
+          ECHO_PIPER_VOICE: ${{ env.ASSETS_DIR }}/voices/en_US-amy-medium.onnx
+          ECHO_ASR_SPEECH_WAV: ${{ env.ASSETS_DIR }}/speech.wav
+          # Phase 13 openWakeWord: the three ONNX models + the two synthesized clips.
+          ECHO_OWW_MELSPEC: ${{ env.ASSETS_DIR }}/openwakeword/melspectrogram.onnx
+          ECHO_OWW_EMBEDDING: ${{ env.ASSETS_DIR }}/openwakeword/embedding_model.onnx
+          ECHO_OWW_MODEL: ${{ env.ASSETS_DIR }}/openwakeword/hey_jarvis_v0.1.onnx
+          ECHO_WAKE_CLIP: ${{ env.ASSETS_DIR }}/wake_hey_jarvis.wav
+          ECHO_NOTWAKE_CLIP: ${{ env.ASSETS_DIR }}/not_wake_speech.wav
+          # Phase 19 audio-robustness: the verified noise beds mixed into the clips above.
+          ECHO_NOISE_BEDS_DIR: ${{ env.ASSETS_DIR }}/noise
+        run: |
+          # Piper's bundled .so files + (if whisper built shared) its install libs +
+          # (Phase 13) ONNX Runtime's lib dir so libonnxruntime.so resolves.
+          export LD_LIBRARY_PATH="$ASSETS_DIR/piper:$WHISPER_INSTALL/lib:$ASSETS_DIR/onnxruntime-linux-x64-1.17.3/lib:${LD_LIBRARY_PATH:-}"
+          ctest --test-dir build-real --output-on-failure -R "real"
+
+  # ---------------------------------------------------------------------------
+  # 9. real-llm (Phase 12) — verify the REAL reasoning LLM path, not the stub.
+  #    Phase 11 left this out, judging a full 3B–4B model impractical per-commit.
+  #    Phase 12 narrows the ambition: turn ECHO_WITH_LLAMA ON, build llama.cpp from
+  #    a pinned tag, download + SHA-256-verify a genuinely TINY instruct model
+  #    (Qwen2.5-0.5B-Instruct Q5_K_M, ~498 MiB — see MANIFEST.md), and run
+  #    tests/real_llm_test.cpp against a real model's REAL output: route-tag parsing
+  #    (Phase 6), the safe-mode gate (principle #5), and a sanity generation.
+  #
+  #    Its own job so it runs IN PARALLEL with real-engines and the fast jobs, never
+  #    gating their feedback. It is heavier (a llama.cpp source build + a ~498 MB
+  #    model), so BOTH the llama build and the model are cached; a warm run skips the
+  #    download and rebuild and finishes in a couple of minutes. A short greedy CPU
+  #    inference (a handful of ~96-token generations) is a few seconds — the build,
+  #    not the inference, dominates.
+  #
+  #    HONEST SCOPE (docs/STATE.md): this validates the real llama.cpp *integration*
+  #    + parser + gate against a small model. It does NOT validate production
+  #    reasoning quality — that depends on the larger deployment model, untested here.
+  # ---------------------------------------------------------------------------
+  real-llm:
+    name: Real LLM (llama.cpp tiny model) route-tag + safe-mode gate
+    runs-on: ubuntu-latest
+    env:
+      # Pin the llama.cpp build. ECHO's adapter (cognitive-core/src/llm.cpp) targets
+      # the current memory/sampler API; this tag has it (KV-clear=current).
+      LLAMA_TAG: b10184
+      ASSETS_DIR: ${{ github.workspace }}/.real-llm-assets
+      LLAMA_INSTALL: ${{ github.workspace }}/.llama-install
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache build-essential git
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-real-llm-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-real-llm-${{ runner.os }}-
+
+      # Cache ONLY the LLM model. Keyed on the fetch script (which holds the pinned
+      # URL + checksum), so the key changes exactly when the model changes ("cache by
+      # checksum", constraint #1). Distinct key from the real-engines asset cache
+      # because this dir holds only llm.gguf (the filtered fetch below).
+      - name: Cache LLM model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ASSETS_DIR }}
+          key: real-llm-model-${{ hashFiles('scripts/fetch_real_engine_assets.sh') }}
+
+      # Cache the llama.cpp build+install so the source build only happens when the
+      # pinned tag changes.
+      - name: Cache llama.cpp install
+        id: llama-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LLAMA_INSTALL }}
+          key: llama-${{ runner.os }}-${{ env.LLAMA_TAG }}
+
+      # Fetch ONLY the LLM (the substring filter), re-verifying its SHA-256 on both a
+      # cold and a cache-restored run.
+      - name: Fetch + verify the tiny LLM model
+        run: bash scripts/fetch_real_engine_assets.sh "$ASSETS_DIR" llm.gguf
+
+      # llama.cpp has no apt package; build the pinned tag from source and install it
+      # so ECHO's find_package(llama CONFIG) resolves it. We build ONLY the library:
+      #   - LLAMA_BUILD_APP/COMMON OFF: the unified "app" + common pull in a vendored
+      #     cpp-httplib submodule ECHO never needs (and which isn't in a shallow clone).
+      #   - TESTS/EXAMPLES/TOOLS/SERVER OFF, CURL OFF: none are needed to link ECHO.
+      #   - GGML_NATIVE OFF: portable baseline so a cached binary built on one runner's
+      #     CPU never SIGILLs on another runner with an older microarchitecture.
+      #   - GGML_CPU_ALL_VARIANTS OFF: pinned defensively to its default so we never
+      #     accidentally trigger the multi-variant CPU compile (one backend per
+      #     microarchitecture) — one portable baseline build is all this job needs.
+      #
+      # HONEST NOTE ON RUNTIME + MEMORY: this cold build is llama.cpp's full library
+      # (ggml + every model architecture). It is a ONE-TIME cost, paid only on a cache
+      # miss — the install below is cached keyed on LLAMA_TAG, so every subsequent run
+      # skips this step and the job finishes in a couple of minutes (the same trade-off
+      # Phase 11 accepted for its from-source whisper.cpp build). ccache softens the
+      # rare case where the install cache is evicted but the ccache cache survives.
+      #
+      #   CXX at -O1: the single giant `src/llama.cpp` C++ TU compiled at the default
+      #   Release -O3 needs several GB of compiler RAM and OOM-kills the hosted runner
+      #   (observed: a deterministic exit-143 shutdown on exactly that file). -O1 slashes
+      #   GCC's peak memory; these TUs are orchestration, not hot compute, so runtime is
+      #   unaffected — ggml's C kernels keep the default -O3 and carry the actual math.
+      #   `--parallel 2` bounds peak memory while the model-arch TUs compile together.
+      - name: Build + install llama.cpp (${{ env.LLAMA_TAG }})
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$LLAMA_TAG" https://github.com/ggml-org/llama.cpp
+          cmake -S llama.cpp -B llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O1 -DNDEBUG" \
+            -DLLAMA_BUILD_APP=OFF \
+            -DLLAMA_BUILD_COMMON=OFF \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_CURL=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_CPU_ALL_VARIANTS=OFF \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_INSTALL_PREFIX="$LLAMA_INSTALL"
+          cmake --build llama.cpp/build --parallel 2
+          cmake --install llama.cpp/build
+
+      - name: Configure (ECHO_WITH_LLAMA=ON)
+        run: >
+          cmake -S . -B build-real-llm
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DECHO_WITH_LLAMA=ON
+          -DCMAKE_PREFIX_PATH="$LLAMA_INSTALL"
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # Only the real-llm test needs building (and its lib deps); no need to build the
+      # whole tree for this focused job.
+      - name: Build the real-llm test
+        run: cmake --build build-real-llm --target echo-real-llm-tests --parallel
+
+      # ECHO_LLAMA_MODEL points the adapter at the verified model; LD_LIBRARY_PATH
+      # lets the shared libllama / libggml* resolve at runtime (install lib dir).
+      - name: "Test (real LLM: route-tag parsing + safe-mode gate)"
+        env:
+          ECHO_LLAMA_MODEL: ${{ env.ASSETS_DIR }}/llm.gguf
+        run: |
+          export LD_LIBRARY_PATH="$LLAMA_INSTALL/lib:${LD_LIBRARY_PATH:-}"
+          ctest --test-dir build-real-llm --output-on-failure -R "real-llm"
+
+  # ---------------------------------------------------------------------------
+  # 10. soak (Phase 20) — the longevity & resource-leak soak. Drives the REAL runtime +
+  #     REAL memory engine through thousands of SIMULATED-time ticks (an injected virtual
+  #     clock, never real sleep) with periodic transient fault injection, and asserts
+  #     reminder-scheduler drift, event-log retention boundedness, RSS plateau, fd/handle
+  #     stability, and repeated watchdog recovery without worker leaks.
+  #
+  #     Its OWN job, scoped exactly like the real-LLM one: it runs longer than the fast
+  #     stub suites (a compressed 7 simulated days is thousands of ticks + real SQLite
+  #     encrypt/persist churn + a handful of real watchdog hang episodes), so keeping it
+  #     off the always-green stub baseline preserves fast per-PR feedback. It is still a
+  #     dependency-free STUB build — no models, no secrets — so it runs in parallel with
+  #     everything else. `timeout-minutes` is a hard ceiling; the run itself is ~seconds.
+  #     On Linux the resource probe reads /proc, so the RSS/fd assertions run for real
+  #     here (they self-skip only on platforms without that accounting).
+  # ---------------------------------------------------------------------------
+  soak:
+    name: Longevity soak (simulated multi-day, leak/drift)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools (cmake, ccache)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-soak-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-soak-${{ runner.os }}-
+
+      - name: Configure (dependency-free stub build)
+        run: >
+          cmake -S . -B build-soak
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # Only the soak test (and its lib deps) need building for this focused job.
+      - name: Build the soak test
+        run: cmake --build build-soak --target echo-soak-tests --parallel
+
+      # ECHO_SOAK_TICKS defaults to 10,080 (= 7 simulated days at 60 s/tick); left at the
+      # default here. Bump it locally for a longer run. The per-test --timeout is a
+      # belt-and-braces bound under the job-level timeout-minutes above.
+      - name: "Test (longevity soak: drift / retention / RSS / fd / watchdog)"
+        run: ctest --test-dir build-soak --output-on-failure -R "soak" --timeout 600
