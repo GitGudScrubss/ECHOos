@@ -11,6 +11,8 @@ timestamps are back-dated from now so Hindsight sees a real timeline.
                           after recognising their face)
            note           Margaret said something to the glasses herself;
                           `who` is a person the note mentions, used for tags
+           task           a session summary logged by the step-by-step guide
+                          agent (guide_agent.py), tagged task:make-tea
 """
 
 import re
@@ -35,10 +37,16 @@ EVENTS = [
      "three weeks, on Wednesday the 28th at 10:30, and bring your medication list."),
     (3, "note", None, "City Neuro Clinic",
      "The receptionist at the clinic is called Joy, she has the red glasses."),
+    (4, "task", None, "home",
+     "Making tea, first try with the guide: Margaret could not find the tea bags; "
+     "they are in the green tin left of the kettle. She needed every step."),
     (5, "conversation", "Priya", "home",
      "I've written your appointments on the calendar on the fridge. Dad's "
      "birthday would have been on the 11th, we could go to the garden at St. "
      "Mary's together if you'd like."),
+    (5, "task", None, "home",
+     "Making tea: Margaret filled the kettle but forgot to switch it on at the "
+     "wall socket. Pointing at the socket with the red switch worked."),
     (6, "conversation", "Arjun", "school hall",
      "Grandma you came! Did you see me roar? Mum says you can have the lion "
      "mask, I made it myself."),
@@ -49,12 +57,18 @@ EVENTS = [
      "My granddaughter Ada starts university in Leeds next month."),
     (8, "note", "Arjun", "home",
      "I like my tea with milk and one sugar, in the yellow mug Arjun painted."),
+    (9, "task", None, "home",
+     "Making tea: she switched the kettle on herself this time. Confused about "
+     "whether milk goes in before the water; she prefers milk after."),
     (10, "conversation", "Sunita", "home",
      "Hello Margaret, I'm Sunita, the community nurse. I'll come on Tuesdays to "
      "check your blood pressure. Today it was a little high, 150 over 90."),
     (11, "conversation", "Priya", "St. Mary's garden",
      "Dad loved these roses. Next Sunday I'll bring tomato soup, the one you "
      "like with basil, and we can sort the old photographs."),
+    (12, "task", None, "home",
+     "Making tea: smooth until the tea bag; she left it in for ten minutes. A "
+     "short reminder 'take the bag out now' after three minutes worked."),
     (13, "note", "Mr. Okafor", "home",
      "Daniel brought the blue casserole dish back. I put it in the bottom cupboard."),
 
@@ -65,6 +79,9 @@ EVENTS = [
     (15, "conversation", "Priya", "home",
      "Remember the pharmacy changed: prescriptions now come from Boots on "
      "Station Road, not the one by the post office. They deliver on Mondays."),
+    (16, "task", None, "home",
+     "Making tea: she did kettle, cup and milk without help. Only needed the "
+     "tea-bag timer reminder. Prefers being told one step at a time, slowly."),
     (17, "conversation", "Sunita", "home",
      "Blood pressure is better today, 135 over 85. Keep walking to the corner "
      "shop in the mornings, it's doing you good."),
@@ -79,6 +96,9 @@ EVENTS = [
     (19, "conversation", "Arjun", "phone",
      "Grandma my cold is gone. Can we make the lemon biscuits on Sunday? I "
      "want to bring some to school for Mr. Hale."),
+    (19, "task", None, "home",
+     "Making tea: completed alone in the yellow mug; asked for help once, "
+     "unsure if the kettle had boiled. 'Wait for the click' was enough."),
 ]
 
 
@@ -99,6 +119,8 @@ def as_memory(event):
     day, kind, who, place, text = event
     if kind == "conversation":
         content = f"{who} talked with {WEARER} at {place}. {who} said: {text}"
+    elif kind == "task":
+        content = f"Guide log for {WEARER}. {text}"
     else:
         content = f"{WEARER} said: {text}"
     tags = []
@@ -106,6 +128,8 @@ def as_memory(event):
         tags.append(f"person:{slug(who)}")
     if place:
         tags.append(f"place:{slug(place)}")
+    if kind == "task":
+        tags.append("task:make-tea")
     return content, kind, tags
 
 
