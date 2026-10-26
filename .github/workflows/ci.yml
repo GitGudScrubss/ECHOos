@@ -439,7 +439,11 @@ jobs:
   # ---------------------------------------------------------------------------
   real-engines:
     name: Real engines (whisper/OpenCV/Piper/openWakeWord) vs. fixtures
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: the YuNet model in fetch_real_engine_assets.sh is
+    # the 2022mar build matched to Ubuntu 24.04's OpenCV 4.6. ubuntu-latest (26.04)
+    # ships OpenCV 4.10, whose DNN importer rejects that model ("Layer with requested
+    # id=-1 not found"). Move both together when upgrading.
+    runs-on: ubuntu-24.04
     env:
       WHISPER_TAG: v1.7.4
       ASSETS_DIR: ${{ github.workspace }}/.real-engine-assets
@@ -481,7 +485,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.WHISPER_INSTALL }}
-          key: whisper-${{ runner.os }}-${{ env.WHISPER_TAG }}
+          # Image in the key: a build cached on a newer Ubuntu would not load here.
+          key: whisper-${{ runner.os }}-ubuntu-24.04-${{ env.WHISPER_TAG }}
 
       - name: Fetch + verify models and face fixtures
         run: bash scripts/fetch_real_engine_assets.sh "$ASSETS_DIR"

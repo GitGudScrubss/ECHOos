@@ -26,7 +26,7 @@ std::string json_quote(const std::string& s) {
             default:
                 if (c < 0x20) {
                     char buf[8];
-                    std::snprintf(buf, sizeof buf, "\\u%04x", c);
+                    (void)std::snprintf(buf, sizeof buf, "\\u%04x", c);
                     out += buf;
                 } else {
                     out += static_cast<char>(c);  // UTF-8 passes through unchanged
@@ -168,6 +168,9 @@ public:
 #endif
 
         std::string out;
+        // The command processor is the point of this demo-only transport; the URL is
+        // screened for shell metacharacters above and the body never reaches the shell.
+        // NOLINTNEXTLINE(cert-env33-c)
         if (FILE* p = ECHO_POPEN(cmd.str().c_str(), "r")) {
             char buf[4096];
             std::size_t n;
