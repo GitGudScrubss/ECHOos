@@ -13,6 +13,8 @@ What one touch does:
        "we are at the college lab"   -> name the place we're standing in
        "who is this guy"             -> identify + recall everything
        "when is my doctor's visit"   -> answer from long-term memory
+       "I want to make a cup of tea" -> step-by-step guide (guide_agent.py);
+                                        each touch: done / help / stop
        anything else                 -> identify, and log what was discussed
 
   4. The answer goes back to the board as display text (msg_type 0x03) and
@@ -45,6 +47,7 @@ import wave
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import guide_agent
 import hindsight_memory
 import llm_client
 
@@ -468,6 +471,9 @@ def detect_intent(transcript):
     for p in INTENT_WHO:
         if re.search(p, text):
             return "who", None
+    task = guide_agent.detect_task(transcript)
+    if task:
+        return "guide", task
     for p in INTENT_ASK:
         if re.search(p, text):
             return "ask", transcript.strip()
@@ -695,6 +701,50 @@ def ask(question, when=None):
     return answer_card(answer["text"]), answer["facts"]
 
 
+# The running step-by-step guide, if any. Touches go to it until it finishes,
+# is stopped, or has been left alone for GUIDE_IDLE seconds. Only the accept
+# loop touches these, so no lock.
+GUIDE = None
+GUIDE_LAST_TOUCH = 0.0
+GUIDE_IDLE = 10 * 60
+
+
+def guide_active():
+    global GUIDE
+    if GUIDE is None or GUIDE.finished:
+        return False
+    if time.time() - GUIDE_LAST_TOUCH > GUIDE_IDLE:
+        GUIDE.finish(stopped=True)            # abandoned; memory notes that too
+        GUIDE = None
+        return False
+    return True
+
+
+def guide_touch(intent, task, transcript):
+    """Start a guide or move the running one on. Returns (oled_text,
+    headline, detail, page_note)."""
+    global GUIDE, GUIDE_LAST_TOUCH
+    GUIDE_LAST_TOUCH = time.time()
+    if intent == "guide" and not guide_active():
+        GUIDE = guide_agent.GuideSession(task, LTM, WEARER)
+        GUIDE.plan()
+        n = len([s for s in GUIDE.steps if s["id"] != "intro"])
+        head = f"Guide: {GUIDE.task['name']}"
+        detail = f"{n} steps, " + ("personalised from memory" if GUIDE.source == "memory"
+                                   else "generic (no history yet)")
+        note = ((GUIDE.memory + "\n\n") if GUIDE.memory else "") + guide_agent.describe_plan(GUIDE)
+        return GUIDE.card(), head, detail, note
+
+    result = GUIDE.handle(guide_agent.control_word(transcript))
+    head = f"Guide: {GUIDE.task['name']}"
+    if result in ("done", "stopped"):
+        text = GUIDE.card() if result == "done" else compose(["Guide stopped.", "", "Touch and ask", "any time."])
+        return text, head, f"Guide {result}", GUIDE.summary
+    step = GUIDE.current()
+    detail = ("Help: " if result == "help" else "Step: ") + step["say"]
+    return GUIDE.card(helping=result == "help"), head, detail, step["why"]
+
+
 # ----------------------------------------------------------------------
 # One touch cycle
 # ----------------------------------------------------------------------
@@ -777,6 +827,15 @@ def handle_cycle(conn, cycle):
             set_state(kind="error", headline=f"Couldn't enrol {arg}", detail=info,
                       transcript=transcript, image=jpg, cycle=cycle, oled=text)
         send_rich_reply(conn, text)
+        return
+
+    # ---- step-by-step guide: start one, or let a running one take the touch ----
+    if intent == "guide" or guide_active():
+        text, head, detail, note = guide_touch(intent, arg, transcript)
+        banner(head, detail)
+        send_rich_reply(conn, text)
+        set_state(kind="guide", headline=head, detail=detail, recall=note,
+                  transcript=transcript, image=jpg, cycle=cycle, oled=text)
         return
 
     # ---- a question about the past: answer from memory, no face needed ----
@@ -876,7 +935,8 @@ PAGE = """<!doctype html>
 </div></body></html>"""
 
 COLORS = {"idle": "#8b95a1", "enrolled": "#6ee7a8", "known": "#7cc4ff",
-          "unknown": "#ffcc66", "error": "#ff8a8a", "memory": "#c9b8ff"}
+          "unknown": "#ffcc66", "error": "#ff8a8a", "memory": "#c9b8ff",
+          "guide": "#ffd59e"}
 
 
 class PageHandler(BaseHTTPRequestHandler):
