@@ -36,4 +36,10 @@ std::unique_ptr<ICognitiveCore> make_cognitive_core_with_llm(SafeModeConfig conf
                                                              memory::IMemoryEngine* memory,
                                                              std::unique_ptr<ILlm> llm);
 
+// The same, with long-term memory attached (non-owning, may be null).
+std::unique_ptr<ICognitiveCore> make_cognitive_core_with_llm(SafeModeConfig config,
+                                                             memory::IMemoryEngine* memory,
+                                                             std::unique_ptr<ILlm> llm,
+                                                             memory::ILongTermMemory* ltm);
+
 }  // namespace echo::cognitive
