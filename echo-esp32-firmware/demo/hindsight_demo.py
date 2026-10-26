@@ -9,6 +9,8 @@ taken as already recognised.
     python demo/hindsight_demo.py --seed      # one-off: load the 20-day story
     python demo/hindsight_demo.py             # same moments, memory OFF vs ON
     python demo/hindsight_demo.py --curve     # watch it learn: day 1, 5, 20
+    python demo/hindsight_demo.py --guide     # tea guide on day 1, 5, 20
+    python demo/hindsight_demo.py --guide --live   # walk through it yourself
     python demo/hindsight_demo.py --reset     # delete the demo bank
 
 Needs HINDSIGHT_API_KEY (or HINDSIGHT_API_KEY.env in the repo root) for the
@@ -23,6 +25,7 @@ import copy
 import os
 import sys
 import tempfile
+import textwrap
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +34,7 @@ sys.path.insert(0, HERE)
 os.environ.setdefault("ECHO_WEARER_NAME", "Margaret")
 
 import echo_brain as brain          # noqa: E402
+import guide_agent                  # noqa: E402
 import hindsight_memory             # noqa: E402
 import llm_client                   # noqa: E402
 import story                        # noqa: E402
@@ -173,17 +177,15 @@ def mode_compare(bank, sides):
     on.close()
 
 
-def mode_curve(bank):
-    """Replay the story into a fresh bank and ask the same things on day 1,
-    day 5 and day 20. Only memory changes between the columns."""
+def replay(bank, at_checkpoint):
+    """Replay the story into a fresh bank, calling at_checkpoint(ltm, day,
+    total) on day 1, 5 and 20 so the same thing can be asked as memory grows."""
     ltm = make_ltm(bank)
     if not ltm.enabled:
         sys.exit(f"! {ltm.describe()}")
     print(f"Fresh bank '{bank}'. Replaying Margaret's life and asking the same "
-          "questions as it grows.\n")
+          "things as it grows.\n")
     ltm.delete_bank()
-
-    columns = {i: [] for i in range(len(CURVE_SCENES))}
     done = 0
     for day in CURVE_DAYS:
         new = [e for e in story.EVENTS if done < e[0] <= day]
@@ -193,15 +195,70 @@ def mode_curve(bank):
         print(f"  day {day:>2}: retained {len(new)} new memories ({total} total) "
               f"in {time.time() - t:.0f}s" + (f"  ! {err}" if err else ""))
         done = day
+        at_checkpoint(ltm, day, total)
+    ltm.close()
+
+
+def mode_curve(bank):
+    """The same questions on day 1, 5 and 20; only memory changes between
+    the columns."""
+    columns = {i: [] for i in range(len(CURVE_SCENES))}
+
+    def ask_all(ltm, day, total):
         for i, scene in enumerate(CURVE_SCENES):
             setup_local_store(day, with_points=False)
             text, _, _ = run_scene(scene, ltm, day=day)
             columns[i].append(box(text, f"day {day} · {total} memories"))
+
+    replay(bank, ask_all)
     print()
     for i, scene in enumerate(CURVE_SCENES):
         print(f"── {heading(scene)}")
         print(side_by_side(*columns[i]))
         print()
+
+
+def mode_guide_curve(bank):
+    """'I want to make a cup of tea' on day 1, 5 and 20."""
+    plans = []
+
+    def plan(ltm, day, total):
+        session = guide_agent.GuideSession("make-tea", ltm, story.WEARER,
+                                           now=story.when(day))
+        t = time.time()
+        session.plan()
+        plans.append((day, total, session, time.time() - t))
+
+    replay(bank, plan)
+    for day, total, s, secs in plans:
+        real = [x for x in s.steps if x["id"] != "intro"]
+        print(f"\n── Day {day} · {total} memories · \"I want to make a cup of tea\"")
+        print(f"   {len(real)} steps, planned from {s.source} in {secs:.1f}s")
+        if s.memory:
+            print(textwrap.fill(f"Hindsight: {s.memory}", 100,
+                                initial_indent="   ", subsequent_indent="      "))
+        print(textwrap.indent(guide_agent.describe_plan(s), "     "))
+        print(side_by_side(box(s.card(), "on the glasses")))
+
+
+def mode_guide_live(bank):
+    """Walk through the guide yourself against the seeded bank. Enter = done,
+    h = help, s = stop. The session summary is retained, so the next run
+    learns from this one."""
+    ltm = make_ltm(bank)
+    session = guide_agent.GuideSession("make-tea", ltm, story.WEARER)
+    print("Planning from memory..." if ltm.enabled else f"! {ltm.describe()}")
+    session.plan()
+    print(f"{len(session.steps)} steps from {session.source}.\n")
+    helping = False
+    while not session.finished:
+        print(side_by_side(box(session.card(helping=helping), "glasses")))
+        key = input("[Enter] done   [h] help   [s] stop > ").strip().lower()
+        word = {"h": "help", "s": "stop"}.get(key[:1], "next")
+        helping = session.handle(word) == "help"
+    if ltm.enabled:
+        ltm.flush()
+        print("\nRetained:", textwrap.fill(session.summary, 100, subsequent_indent="          "))
     ltm.close()
 
 
@@ -214,6 +271,8 @@ def main():
     g.add_argument("--curve", action="store_true", help="learning curve: day 1, 5, 20")
     g.add_argument("--off", action="store_true", help="memory OFF column only")
     g.add_argument("--on", action="store_true", help="memory ON column only")
+    g.add_argument("--guide", action="store_true", help="step-by-step tea guide, day 1/5/20")
+    p.add_argument("--live", action="store_true", help="with --guide: step through it yourself")
     a = p.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -231,6 +290,10 @@ def main():
             print(f"retained {len(story.EVENTS)} memories into '{a.bank}' in "
                   f"{time.time() - t:.0f}s" + (f"  ! {err}" if err else ""))
         ltm.close()
+    elif a.guide and a.live:
+        mode_guide_live(a.bank)
+    elif a.guide:
+        mode_guide_curve(f"{a.bank}-curve")
     elif a.curve:
         mode_curve(f"{a.bank}-curve")
     else:
