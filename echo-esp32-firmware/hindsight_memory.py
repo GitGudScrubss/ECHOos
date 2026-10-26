@@ -313,18 +313,21 @@ class LongTermMemory:
         return self._call("read", read, timeout)
 
     def reflect(self, query, tags=None, context=None, budget="low",
-                timeout=REFLECT_TIMEOUT, tags_match="any"):
+                timeout=REFLECT_TIMEOUT, tags_match="any", schema=None):
         """Hindsight reasons over the bank (guided by its mission) and answers.
-        Returns {"text", "facts"} — facts being the memories it based the
-        answer on, as [{text, when}] — or None."""
+        Returns {"text", "facts", "data"} — facts being the memories it based
+        the answer on, as [{text, when}]; data the JSON object matching
+        `schema` when one is given — or None."""
         def think(client):
             r = client.reflect(self.bank, query, budget=budget, context=context,
-                               tags=tags, tags_match=tags_match, include_facts=True)
+                               tags=tags, tags_match=tags_match, include_facts=True,
+                               response_schema=schema)
             text = (r.text or "").strip()
-            if not text:
+            data = r.structured_output if schema else None
+            if not text and not data:
                 return None
             used = getattr(r.based_on, "memories", None) or []
-            return {"text": text, "facts": [_fact(m) for m in used]}
+            return {"text": text, "facts": [_fact(m) for m in used], "data": data}
         return self._call("read", think, timeout)
 
     def delete_bank(self):
