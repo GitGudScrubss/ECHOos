@@ -13,6 +13,7 @@
 #include "echo/types.hpp"
 #include "echo/result.hpp"
 #include "echo/perception/perception_engine.hpp"
+#include "echo/memory/long_term_memory.hpp"
 #include "echo/memory/memory_engine.hpp"
 
 #include <memory>
@@ -111,5 +112,14 @@ public:
 // itself — all storage goes through the engine.
 std::unique_ptr<ICognitiveCore> make_cognitive_core(SafeModeConfig config = {},
                                                     memory::IMemoryEngine* memory = nullptr);
+
+// As above, plus optional long-term episodic memory (Hindsight; see
+// long_term_memory.hpp). When the store has no answer to a question about the
+// wearer's own life, `ltm` is asked before abstaining; confident statements
+// and namings are retained into it. Non-owning; nullptr is exactly the
+// two-argument factory.
+std::unique_ptr<ICognitiveCore> make_cognitive_core(SafeModeConfig config,
+                                                    memory::IMemoryEngine* memory,
+                                                    memory::ILongTermMemory* ltm);
 
 }  // namespace echo::cognitive

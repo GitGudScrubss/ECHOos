@@ -49,4 +49,10 @@ bool is_identity_query(const std::string& transcript);
 // is always clear which one is responsible for a given turn.
 bool is_self_referential_query(const std::string& transcript);
 
+// Is this utterance a question (of any kind) rather than a statement? Used to
+// keep questions out of long-term memory: "where are my keys?" says nothing
+// about where the keys are. Errs towards "question", since wrongly skipping a
+// statement only loses one memory, while storing a question pollutes recall.
+bool is_question(const std::string& transcript);
+
 }  // namespace echo::memory

@@ -19,6 +19,9 @@
 //   --text         type utterances instead of speaking (no mic/wake needed)
 //   --no-camera    skip the webcam (mic-only)
 //   --headless-hud log HUD frames instead of opening the overlay window
+//   --hindsight    long-term memory: an on-device store plus Hindsight through
+//                  scripts/hindsight_bridge.py (ECHO_HINDSIGHT_URL, default
+//                  http://127.0.0.1:8799). Opt-in; without it, unchanged.
 #include "echo/perception/perception_engine.hpp"
 #include "echo/cognitive/cognitive_core.hpp"
 #include "echo/voice/voice_ui.hpp"
@@ -34,12 +37,17 @@
 #include "echo/apps/framework/permission.hpp"
 #include "registry.hpp"
 
+#include "echo/apps/net/http.hpp"
+#include "echo/memory/memory_engine.hpp"
+#include "hindsight_ltm.hpp"
+
 #include "latency.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -103,6 +111,7 @@ int main(int argc, char** argv) {
     const bool text_mode   = has_flag(argc, argv, "--text");
     const bool no_camera   = has_flag(argc, argv, "--no-camera");
     const bool headless_hud = has_flag(argc, argv, "--headless-hud");
+    const bool hindsight   = has_flag(argc, argv, "--hindsight");
     bool kiosk = has_flag(argc, argv, "--kiosk");
     if (kiosk && text_mode) {
         log_warn("demo", "--kiosk is incompatible with --text (no console to type into); ignoring --kiosk");
@@ -113,7 +122,29 @@ int main(int argc, char** argv) {
 
     // --- Core pipeline --------------------------------------------------------
     auto perception = perception::make_perception_engine();
-    auto cognitive  = cognitive::make_cognitive_core();   // default safe-mode config
+
+    // Long-term memory (opt-in). The store holds people and reminders as on the
+    // glasses; Hindsight, via the local bridge, holds everything else the wearer
+    // has said, and is asked only when the store has no answer.
+    std::unique_ptr<memory::IMemoryEngine> store;
+    std::unique_ptr<demo::HindsightBridgeMemory> ltm;
+    if (hindsight) {
+        store = memory::make_memory_engine();
+        if (store->open(":memory:") != Status::Ok) store.reset();
+        const char* url = std::getenv("ECHO_HINDSIGHT_URL");
+        auto http = apps::net::make_default_http_client();
+        if (!http) http = demo::make_curl_cli_http_client();
+        ltm = std::make_unique<demo::HindsightBridgeMemory>(
+            std::move(http), url && *url ? url : "http://127.0.0.1:8799");
+        if (ltm->reachable())
+            log_info("demo", "long-term memory: Hindsight bridge connected");
+        else
+            log_warn("demo", "long-term memory: bridge not reachable — start "
+                             "scripts/hindsight_bridge.py; answers fall back to abstaining");
+    }
+    auto cognitive = hindsight
+        ? cognitive::make_cognitive_core({}, store.get(), ltm.get())
+        : cognitive::make_cognitive_core();               // default safe-mode config
     auto voice      = voice::make_voice_ui();
     perception->initialize();
     cognitive->initialize();

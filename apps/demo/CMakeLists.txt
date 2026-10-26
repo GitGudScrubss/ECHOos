@@ -5,7 +5,7 @@
 # response drawn on the SDL HUD overlay. It links the core pipeline modules and
 # the app-framework/apps; it reuses the host's app registry so the app list stays
 # defined in exactly one place.
-add_executable(echo-demo echo_demo.cpp)
+add_executable(echo-demo echo_demo.cpp hindsight_ltm.cpp)
 
 target_include_directories(echo-demo PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -15,6 +15,8 @@ target_include_directories(echo-demo PRIVATE
 target_link_libraries(echo-demo PRIVATE
     echo::perception
     echo::cognitive
+    echo::memory
+    echo::appkit       # net::IHttpClient for --hindsight
     echo::voice
     echo::sensor
     echo::apps-hud

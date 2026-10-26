@@ -1,0 +1,89 @@
+Margaret Ellis, 78, early-stage Alzheimer's. Day 20 of the story.
+  ollama model: llama3:8b
+Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
+
+── 1. Priya walks in and says: "Hi Mum, I'm here. Have you had lunch yet?"
+ memory OFF (today)        memory ON (Hindsight) 
+┌─────────────────────┐   ┌─────────────────────┐
+│This is Priya        │   │This is Priya        │
+│Met at home          │   │Met at home          │
+│07 Oct, 18d ago - 7x │   │07 Oct, 18d ago - 7x │
+│Talked about:        │   │Priya is your        │
+│- Hello from child   │   │daughter. She takes  │
+│- Lunch not discussed│   │you to Dr. Rao on    │
+│- Arrival announced  │   │Wednesday 28th at    │
+│                     │   │10:00.               │
+└─────────────────────┘   └─────────────────────┘
+   Hindsight recalled 14 fact(s) in 11.1s
+     · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
+     · [21 Oct] Priya and Margaret are mother and daughter.
+     · [07 Oct] Priya assists Margaret with her daily needs, such as managing appointments and glasses.
+
+── 2. Margaret asks: "When is my appointment with the doctor?"
+ memory OFF (today)        memory ON (Hindsight) 
+┌─────────────────────┐   ┌─────────────────────┐
+│I don't have a       │   │From your memory:    │
+│record of that.      │   │You have an          │
+│                     │   │appointment with Dr. │
+│Ask someone you      │   │Rao on Wednesday 28th│
+│trust to check.      │   │at 10:00. Please     │
+│                     │   │remember to bring    │
+│                     │   │your medication list │
+│                     │   │from the fridge.     │
+└─────────────────────┘   └─────────────────────┘
+   Hindsight recalled 6 fact(s) in 6.4s
+     · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
+     · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
+     · [09 Oct] Margaret is required to bring her medication list to her next appointment.
+
+── 3. Margaret asks: "Where did I leave my house keys?"
+ memory OFF (today)        memory ON (Hindsight) 
+┌─────────────────────┐   ┌─────────────────────┐
+│I don't have a       │   │From your memory:    │
+│record of that.      │   │You left your house  │
+│                     │   │keys in the blue bowl│
+│Ask someone you      │   │by the front door on │
+│trust to check.      │   │Saturday 24th.       │
+│                     │   │                     │
+│                     │   │                     │
+│                     │   │                     │
+└─────────────────────┘   └─────────────────────┘
+   Hindsight recalled 64 fact(s) in 6.8s
+     · [24 Oct] Margaret left her house keys in the blue bowl by the front door.
+     · [24 Oct] Margaret left her house keys in the blue bowl by the front door.
+     · [08 Oct] Margaret gave Daniel a spare key to her home.
+
+── 4. Mr. Okafor walks in and says: "Afternoon Margaret, lovely day for it."
+ memory OFF (today)        memory ON (Hindsight) 
+┌─────────────────────┐   ┌─────────────────────┐
+│This is Mr. Okafor   │   │This is Mr. Okafor   │
+│Met at home          │   │Met at home          │
+│07 Oct, 18d ago - 4x │   │07 Oct, 18d ago - 4x │
+│Talked about:        │   │He is your neighbor  │
+│- Lovely day         │   │Daniel from number   │
+│- Afternoon          │   │12. He has your spare│
+│- Margaret           │   │house key.           │
+│                     │   │                     │
+└─────────────────────┘   └─────────────────────┘
+   Hindsight recalled 4 fact(s) in 8.4s
+     · [08 Oct] Daniel (Mr. Okafor from number 12) promised to water Margaret's tomato plants during the heatw
+     · [08 Oct] Margaret gave Daniel a spare key to her home.
+     · [08 Oct] Daniel (Mr. Okafor) from number 12 promised to water Margaret's tomato plants during a heatwav
+
+── 5. Margaret asks: "Which pharmacy do my prescriptions come from now?"
+ memory OFF (today)        memory ON (Hindsight) 
+┌─────────────────────┐   ┌─────────────────────┐
+│I don't have a       │   │From your memory:    │
+│record of that.      │   │Your prescriptions   │
+│                     │   │now come from Boots  │
+│Ask someone you      │   │on Station Road. They│
+│trust to check.      │   │deliver them to you  │
+│                     │   │on Mondays.          │
+│                     │   │                     │
+│                     │   │                     │
+└─────────────────────┘   └─────────────────────┘
+   Hindsight recalled 101 fact(s) in 6.0s
+     · [21 Oct] Margaret's prescriptions are now filled by Boots on Station Road instead of the pharmacy by th
+     · [21 Oct] Margaret's prescriptions are now filled by Boots on Station Road instead of the pharmacy by th
+     · [21 Oct] Boots delivers prescriptions on Mondays.
+

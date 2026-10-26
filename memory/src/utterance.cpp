@@ -138,4 +138,21 @@ bool is_self_referential_query(const std::string& transcript) {
     return false;
 }
 
+bool is_question(const std::string& transcript) {
+    const std::string t = trim(transcript);
+    if (t.empty()) return true;               // nothing worth keeping
+    if (t.find('?') != std::string::npos) return true;
+    const auto w = words(lower(t));
+    if (w.empty()) return true;
+    static const char* const openers[] = {
+        "who", "what", "when", "where", "why", "how", "which", "whose",
+        "is", "are", "was", "were", "do", "does", "did", "have", "has", "had",
+        "can", "could", "will", "would", "should", "shall", "may", "might", "am",
+        "remind", "tell",
+    };
+    for (const char* o : openers)
+        if (w[0] == o) return true;
+    return false;
+}
+
 }  // namespace echo::memory

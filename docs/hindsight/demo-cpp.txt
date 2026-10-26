@@ -1,0 +1,21 @@
+===== echo-demo --text --headless-hud 
+> [echo][INFO ][demo] heard: "when is my appointment with the doctor"
+[cognitive] self-referential question with no record -> abstaining
+[voice] speak[reassuring]: I don't have a record of that, so I'd rather not guess.
+[hud] [echo] (working) "I don't have a record of that, so I'd rather not guess."
+[demo] answer not grounded — ECHO declined to assert
+> [echo][INFO ][demo] heard: "where did i leave my house keys"
+[cognitive] self-referential question with no record -> abstaining
+[voice] speak[reassuring]: I don't have a record of that, so I'd rather not guess.
+[hud] [echo] (working) "I don't have a record of that, so I'd rather not guess."
+[demo] answer not grounded — ECHO declined to assert
+===== echo-demo --text --headless-hud --hindsight
+[demo] long-term memory: Hindsight bridge connected
+> [echo][INFO ][demo] heard: "when is my appointment with the doctor"
+[cognitive] answered from long-term memory
+[voice] speak[neutral]: From your memory: The doctor's appointment with Dr. Rao is on Wednesday, October 28 at 10:30, with a pickup by Priya at 10:00.
+[hud] [echo] (success) "From your memory: The doctor's appointment with Dr. Rao is on Wednesday, October 28 at 10:30, with a pickup by Priya at 10:00."
+> [echo][INFO ][demo] heard: "where did i leave my house keys"
+[cognitive] answered from long-term memory
+[voice] speak[neutral]: From your memory: blue bowl by the front door
+[hud] [echo] (success) "From your memory: blue bowl by the front door"

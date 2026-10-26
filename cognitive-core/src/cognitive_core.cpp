@@ -41,12 +41,20 @@ namespace {
 //   2. A DEGENERACY FLOOR on the model's own mean token probability. This catches
 //      collapsed generation. It does NOT catch a fluent falsehood, and is not
 //      claimed to — see SafeModeConfig::min_answer_confidence.
+//
+// Long-term memory (Hindsight, optional — long_term_memory.hpp) widens what
+// "the record" means without loosening the rule: when the store has no answer,
+// long-term memory is asked before abstaining, and only a real hit is spoken,
+// prefixed so the wearer knows where it came from. Writes happen only on the
+// confident path: namings, and confident statements that are not questions.
 class CognitiveCore final : public ICognitiveCore {
 public:
-    CognitiveCore(SafeModeConfig config, memory::IMemoryEngine* mem, std::unique_ptr<ILlm> llm)
+    CognitiveCore(SafeModeConfig config, memory::IMemoryEngine* mem, std::unique_ptr<ILlm> llm,
+                  memory::ILongTermMemory* ltm = nullptr)
         : config_(std::move(config)),
           llm_(llm ? std::move(llm) : make_llm()),
-          memory_(mem) {}
+          memory_(mem),
+          ltm_(ltm) {}
 
     Status initialize() override {
         if (llm_->initialize() != Status::Ok)
@@ -95,12 +103,18 @@ public:
         if (memory::is_self_referential_query(utterance)) {
             std::string answer;
             if (memory_ && memory_->is_open()) answer = memory_->answer_query(utterance, now);
+            if (answer.empty()) answer = recall_long_term(utterance, now);
             if (answer.empty()) {
                 log_info("cognitive", "self-referential question with no record -> abstaining");
                 return Result<Response>::ok(unverified(agg));
             }
             return Result<Response>::ok(grounded(std::move(answer), agg));
         }
+
+        // A confident statement (not a question) is worth remembering: "I left
+        // my keys in the blue bowl" is the answer to tomorrow's question.
+        if (ltm_ && !memory::is_question(utterance))
+            ltm_->retain("The wearer said: " + utterance, "statement", now);
 
         // --- Confident path: run the real LLM ----------------------------------
         LlmReply reply = llm_->generate(utterance);
@@ -123,6 +137,7 @@ public:
         if (reply.intent == "memory") {
             std::string answer;
             if (memory_ && memory_->is_open()) answer = memory_->answer_query(utterance, now);
+            if (answer.empty()) answer = recall_long_term(utterance, now);
             if (answer.empty()) {
                 log_info("cognitive", "[route:memory] with no record -> abstaining");
                 return Result<Response>::ok(unverified(agg));
@@ -203,6 +218,12 @@ private:
         auto id = memory_->remember_person(naming->name, naming->relation, emb, now);
         if (!id) return std::nullopt;
 
+        if (ltm_)
+            ltm_->retain("The wearer met " + naming->name +
+                             (naming->relation.empty() ? "" : " (" + naming->relation + ")") +
+                             ". They said: " + utterance,
+                         "introduction", now);
+
         Response r;
         r.kind        = ResponseKind::Normal;
         r.confidence  = agg;
@@ -241,6 +262,16 @@ private:
         return r;
     }
 
+    // Long-term memory's answer, labelled with where it came from, or "" when
+    // there is no backend or it has nothing (the caller then abstains).
+    std::string recall_long_term(const std::string& question, memory::UnixTime now) {
+        if (!ltm_) return {};
+        auto answer = ltm_->recall_answer(question, now);
+        if (!answer || answer->empty()) return {};
+        log_info("cognitive", "answered from long-term memory");
+        return "From your memory: " + *answer;
+    }
+
     // An answer read out of the store. Normal, because a retrieved fact is not a
     // guess — the same distinction that puts face recall in front of the input gate.
     Response grounded(std::string answer, Confidence agg) const {
@@ -255,6 +286,7 @@ private:
     SafeModeConfig          config_;
     std::unique_ptr<ILlm>   llm_;
     memory::IMemoryEngine*  memory_ = nullptr;  // non-owning; owned by the runtime
+    memory::ILongTermMemory* ltm_   = nullptr;  // non-owning; optional (Hindsight)
 };
 
 }  // namespace
@@ -264,10 +296,23 @@ std::unique_ptr<ICognitiveCore> make_cognitive_core(SafeModeConfig config,
     return std::make_unique<CognitiveCore>(std::move(config), memory, nullptr);
 }
 
+std::unique_ptr<ICognitiveCore> make_cognitive_core(SafeModeConfig config,
+                                                    memory::IMemoryEngine* memory,
+                                                    memory::ILongTermMemory* ltm) {
+    return std::make_unique<CognitiveCore>(std::move(config), memory, nullptr, ltm);
+}
+
 std::unique_ptr<ICognitiveCore> make_cognitive_core_with_llm(SafeModeConfig config,
                                                              memory::IMemoryEngine* memory,
                                                              std::unique_ptr<ILlm> llm) {
     return std::make_unique<CognitiveCore>(std::move(config), memory, std::move(llm));
+}
+
+std::unique_ptr<ICognitiveCore> make_cognitive_core_with_llm(SafeModeConfig config,
+                                                             memory::IMemoryEngine* memory,
+                                                             std::unique_ptr<ILlm> llm,
+                                                             memory::ILongTermMemory* ltm) {
+    return std::make_unique<CognitiveCore>(std::move(config), memory, std::move(llm), ltm);
 }
 
 }  // namespace echo::cognitive
