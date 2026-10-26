@@ -1,0 +1,8 @@
+# Laptop brain for the ESP32-CAM node (echo_brain.py) and the hardware-free
+# demo (demo/hindsight_demo.py). The demo only needs hindsight-client.
+hindsight-client>=1.1
+
+# Only needed by echo_brain.py with real hardware: speech, faces.
+faster-whisper>=1.0
+deepface>=0.0.93
+tf-keras>=2.16
