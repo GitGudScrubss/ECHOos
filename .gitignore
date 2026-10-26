@@ -121,3 +121,7 @@ echo-esp32-firmware/places.json
 echo-esp32-firmware/memory.json
 echo-esp32-firmware/faces/
 echo-esp32-firmware/captures/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
