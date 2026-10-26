@@ -23,11 +23,11 @@ the system:
 
 | Doc | Read it for |
 |-----|-------------|
-| 📐 [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | The system diagram and a 10-second mental model — the core loop and the apps isolation boundary. |
-| 📊 [**docs/STATE.md**](docs/STATE.md) | Honest project status: what's built vs. still pending real-world validation, and test coverage by module. **Read this first.** |
-| 🚀 [**docs/RUNBOOK.md**](docs/RUNBOOK.md) | The consolidated, linear checklist to actually run it for real — deps, accounts, scripts, in order. |
-| 🧭 [**docs/DECISIONS.md**](docs/DECISIONS.md) | The architectural decision log — the real choices made and why. |
-| 🧱 [**docs/PHASE_LEDGER.md**](docs/PHASE_LEDGER.md) | How the project got here, phase 1 → 22: what each phase shipped, the rules every phase inherits, the gap register, and what to build next. |
+| 📐 [**docs/ARCHITECTURE.md**](ARCHITECTURE.md) | The system diagram and a 10-second mental model — the core loop and the apps isolation boundary. |
+| 📊 [**docs/STATE.md**](STATE.md) | Honest project status: what's built vs. still pending real-world validation, and test coverage by module. **Read this first.** |
+| 🚀 [**docs/RUNBOOK.md**](RUNBOOK.md) | The consolidated, linear checklist to actually run it for real — deps, accounts, scripts, in order. |
+| 🧭 [**docs/DECISIONS.md**](DECISIONS.md) | The architectural decision log — the real choices made and why. |
+| 🧱 [**docs/PHASE_LEDGER.md**](PHASE_LEDGER.md) | How the project got here, phase 1 → 22: what each phase shipped, the rules every phase inherits, the gap register, and what to build next. |
 
 The sections below remain the detailed, phase-by-phase reference.
 
@@ -91,7 +91,7 @@ The sections below remain the detailed, phase-by-phase reference.
 ## The 120 ms latency budget
 
 The end-to-end budget is encoded as data in
-[`common/include/echo/latency.hpp`](common/include/echo/latency.hpp) and asserted
+[`common/include/echo/latency.hpp`](../common/include/echo/latency.hpp) and asserted
 by a unit test — it is a build-enforced contract, not a comment.
 
 | Stage             | Budget | What runs here |
@@ -109,12 +109,12 @@ while keeping any in-flight response smooth.
 
 ## Apps layer
 
-On top of the safety-critical core sits [`apps/`](apps/) — the voice-first
+On top of the safety-critical core sits [`apps/`](../apps/) — the voice-first
 application layer (media, browser, search, video, mail, telephony, camera,
 gallery). It is a **separate layer with hard isolation from the core**: apps run
 as their own OS processes under a supervisor, and nothing an app does can block,
 slow, or crash the sub-120 ms perception → cognitive → voice loop. See
-[`apps/README.md`](apps/README.md) for the full design; the essentials:
+[`apps/README.md`](../apps/README.md) for the full design; the essentials:
 
 - **Voice-first, no touchscreen.** These are not phone apps. The glasses have no
   touchscreen and no window manager — every app is a *voice command → spoken /
@@ -157,7 +157,7 @@ permission gate; and real cross-process supervision (IPC round-trip + crash
 containment). They run as part of `ctest` below.
 
 **Core-pipeline harness (Phase 10).** A fixture-driven suite feeds tiny,
-checked-in synthetic audio/images ([`tests/fixtures/`](tests/fixtures/README.md))
+checked-in synthetic audio/images ([`tests/fixtures/`](../tests/fixtures/README.md))
 through the **real** core modules — `echo-sensor` (real capture queue),
 `echo-perception` (routing/framing/fusion in stub-engine mode), `echo-voice`
 (tone mapping), `echo-companion` (a compile-time proof that no transport path
@@ -165,7 +165,7 @@ accepts a `SensorFrame`), and `echo-e2e-fixture` (a full sensor→perception→
 cognitive→voice turn landing in the safe-mode fallback). It exercises production
 code, not mocks, and marks the real wake/ASR/vision/LLM model paths as an explicit
 gap where the installed libraries are required. See coverage in
-[`docs/STATE.md`](docs/STATE.md).
+[`docs/STATE.md`](STATE.md).
 
 ## Building
 
@@ -189,7 +189,7 @@ through the stub pipeline, shuts down cleanly):
 ## Continuous Integration (CI)
 
 Every push and every pull request targeting `master` runs
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) on GitHub Actions. Before
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) on GitHub Actions. Before
 Phase 7 the full test suite was run by hand before each merge — which caught real
 bugs (the Phase 6 JSON stack-overflow and Gmail header-injection fixes are proof),
 but only as long as someone remembered to run it. CI makes that automatic and
@@ -201,9 +201,9 @@ mandatory instead of optional.
 |-----|--------------|----------------|
 | **Stub build** | Configures with every `ECHO_WITH_*` / `ECHO_REAL_AI` flag OFF (the dependency-free default since Phase 1), builds, and runs the **full** `ctest` suite. This job is the safety net every future phase depends on — it must always be green. | None. No external deps, no secrets. |
 | **Network build** | Installs libcurl, configures `-DECHO_WITH_NETWORK=ON`, builds, and runs the appkit + apps suites — JSON parsing (incl. the deep-nesting overflow guard), the Gmail header-injection regression test, the confirm-before-action gate, and the NLU mail/browser routing fix. Proves the Phase 5/6 network branch compiles and passes on a clean machine, not just a developer's laptop. | libcurl (from the runner's apt). **No live API calls** — the tests are credential-free; libcurl only needs to link. |
-| **Secret scan** | Runs the existing [`scripts/check_secrets.sh`](scripts/check_secrets.sh) rules over the tree, so a real API key, OAuth secret, private key, token cache, or committed `.env` fails the run and blocks merge — even if a future session forgets to run the check manually. | None. |
-| **Real engines** (Phases 11 + 13) | Configures `-DECHO_WITH_WHISPER/OPENCV/PIPER/OPENWAKEWORD=ON`, downloads and **SHA-256-verifies** the free models (whisper `tiny.en`, OpenCV YuNet+SFace, a Piper voice, the openWakeWord ONNX pipeline + ONNX Runtime) + two public-domain face photos, builds whisper.cpp from source, and runs [`tests/real_*_test.cpp`](tests/) (ASR, vision, TTS, **wake-word**) against **real weights** on the Phase 10 fixtures + Piper-synthesized speech. Runs in parallel with the fast jobs; models + whisper build are cached. See "Running the real-engine tests locally" below. | Free models only — **no account, no secret**. Every download is checksum-verified before use. |
-| **Real LLM** (Phase 12) | Configures `-DECHO_WITH_LLAMA=ON`, builds llama.cpp from a pinned tag, downloads and **SHA-256-verifies** a *tiny* instruct model (`Qwen2.5-0.5B-Instruct` Q5_K_M, ~498 MiB — see [`MANIFEST.md`](MANIFEST.md)), and runs [`tests/real_llm_test.cpp`](tests/real_llm_test.cpp): route-tag parsing and the safe-mode gate against a **real model's real output**. Runs in parallel; model + llama build are cached. | Free model only — **no account, no secret**. Checksum-verified before use. |
+| **Secret scan** | Runs the existing [`scripts/check_secrets.sh`](../scripts/check_secrets.sh) rules over the tree, so a real API key, OAuth secret, private key, token cache, or committed `.env` fails the run and blocks merge — even if a future session forgets to run the check manually. | None. |
+| **Real engines** (Phases 11 + 13) | Configures `-DECHO_WITH_WHISPER/OPENCV/PIPER/OPENWAKEWORD=ON`, downloads and **SHA-256-verifies** the free models (whisper `tiny.en`, OpenCV YuNet+SFace, a Piper voice, the openWakeWord ONNX pipeline + ONNX Runtime) + two public-domain face photos, builds whisper.cpp from source, and runs [`tests/real_*_test.cpp`](../tests/) (ASR, vision, TTS, **wake-word**) against **real weights** on the Phase 10 fixtures + Piper-synthesized speech. Runs in parallel with the fast jobs; models + whisper build are cached. See "Running the real-engine tests locally" below. | Free models only — **no account, no secret**. Every download is checksum-verified before use. |
+| **Real LLM** (Phase 12) | Configures `-DECHO_WITH_LLAMA=ON`, builds llama.cpp from a pinned tag, downloads and **SHA-256-verifies** a *tiny* instruct model (`Qwen2.5-0.5B-Instruct` Q5_K_M, ~498 MiB — see [`MANIFEST.md`](../MANIFEST.md)), and runs [`tests/real_llm_test.cpp`](../tests/real_llm_test.cpp): route-tag parsing and the safe-mode gate against a **real model's real output**. Runs in parallel; model + llama build are cached. | Free model only — **no account, no secret**. Checksum-verified before use. |
 
 Dependency caching (ccache) keeps PR feedback fast, so runs don't rebuild every
 object from scratch. A newer push to the same branch cancels the in-flight run.
@@ -324,7 +324,7 @@ ECHO_WAKE_CLIP="$A/wake_hey_jarvis.wav" ECHO_NOTWAKE_CLIP="$A/not_wake_speech.wa
 Each real test **self-skips** (green, with a loud message) if you build with an
 engine flag ON but haven't provided its model — so you can bring the engines up one
 at a time. The exact steps CI runs are in the `real-engines` job of
-[`ci.yml`](.github/workflows/ci.yml).
+[`ci.yml`](../.github/workflows/ci.yml).
 
 **The real-LLM test (Phase 12)** works the same way, behind `-DECHO_WITH_LLAMA=ON`.
 Fetch just the model with the fetch script's substring filter, point the adapter at
@@ -338,7 +338,7 @@ bash scripts/fetch_real_engine_assets.sh "$A" llm.gguf   # ~498 MB, SHA-256-veri
 ECHO_LLAMA_MODEL="$A/llm.gguf" ctest --test-dir build-real-llm --output-on-failure -R "real-llm"
 ```
 
-Exact steps are in the `real-llm` job of [`ci.yml`](.github/workflows/ci.yml).
+Exact steps are in the `real-llm` job of [`ci.yml`](../.github/workflows/ci.yml).
 
 ## Code Quality (Phase 8)
 
@@ -347,15 +347,15 @@ recursion (a stack overflow on hostile input) and the Gmail header-injection hol
 Both are textbook cases for automated tooling. Manual review doesn't scale and won't
 happen with the same rigor every time, so Phase 8 gives CI teeth against exactly this
 class of bug: static analysis, fuzzing, and coverage, all wired into
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 **What's now checked automatically, on every push and PR**
 
 | Check | What it catches | Config |
 |-------|-----------------|--------|
-| **clang-tidy** | The `bugprone-*`, `cert-*`, and `clang-analyzer-*` families — the category that flags untrusted data flowing into a protocol string (the header-injection pattern). Runs over every first-party translation unit; findings are hard errors. | [`.clang-tidy`](.clang-tidy), driven by [`scripts/run_clang_tidy.sh`](scripts/run_clang_tidy.sh) |
+| **clang-tidy** | The `bugprone-*`, `cert-*`, and `clang-analyzer-*` families — the category that flags untrusted data flowing into a protocol string (the header-injection pattern). Runs over every first-party translation unit; findings are hard errors. | [`.clang-tidy`](../.clang-tidy), driven by [`scripts/run_clang_tidy.sh`](../scripts/run_clang_tidy.sh) |
 | **cppcheck** | A second, independently-implemented analyzer over the same compile database — different engines catch different defects, so it runs *alongside* clang-tidy, not instead of it. `warning`/`performance`/`portability` findings fail the job. | inline in the workflow |
-| **Fuzzing (JSON)** | A coverage-guided libFuzzer harness for `Json::parse` — the one parser that eats untrusted network bytes and already had a crash bug — run bounded (~2 min) under AddressSanitizer/UndefinedBehaviorSanitizer, seeded from a checked-in corpus. | [`apps/appkit/fuzz/`](apps/appkit/fuzz/) (`-DECHO_BUILD_FUZZERS=ON`) |
+| **Fuzzing (JSON)** | A coverage-guided libFuzzer harness for `Json::parse` — the one parser that eats untrusted network bytes and already had a crash bug — run bounded (~2 min) under AddressSanitizer/UndefinedBehaviorSanitizer, seeded from a checked-in corpus. | [`apps/appkit/fuzz/`](../apps/appkit/fuzz/) (`-DECHO_BUILD_FUZZERS=ON`) |
 | **Coverage** | Line/function/branch coverage via gcov + gcovr. The % is printed to the Actions run summary (visible and trending on its own), the full HTML/XML report is uploaded as an artifact, and the XML feeds the Codecov badge above. | `-DECHO_COVERAGE=ON` |
 
 All four are **additive CI-only jobs**. Every `ECHO_WITH_*` / `ECHO_REAL_AI` /
@@ -370,7 +370,7 @@ Running the analyzers on the existing tree surfaced real quality/robustness issu
 fixed here rather than filed for later:
 
 - **cppcheck** — a latent null-dereference in the demo's real-capture path
-  ([`apps/demo/echo_demo.cpp`](apps/demo/echo_demo.cpp)): `mic->start()` was called
+  ([`apps/demo/echo_demo.cpp`](../apps/demo/echo_demo.cpp)): `mic->start()` was called
   unguarded while the cleanup path and the "microphone unavailable" log both already
   treated `mic` as possibly-null. Today's factories never return null, so it can't
   crash *yet* — but a real mic backend that fails to open the device would. Now
@@ -399,7 +399,7 @@ fixed here rather than filed for later:
   regression protection — it's there so the *next* such bug is caught by a machine.
 
 Several checks are deliberately **tuned, not blindly maxed** — each disabled check in
-[`.clang-tidy`](.clang-tidy) carries a one-line reason (e.g. the recursive-descent
+[`.clang-tidy`](../.clang-tidy) carries a one-line reason (e.g. the recursive-descent
 parser legitimately recurses; the tree standardized on `#pragma once`). Tuning out
 genuine noise is documented; nothing with a real defect behind it is suppressed
 (constraint #3).
@@ -461,7 +461,7 @@ not the third-party integrations.
 
 Every engine is behind a CMake option that defaults **OFF**, so the tree still
 builds end to end with zero dependencies (the stub fallback). Turn one on once
-its library is installed and its model placed under [`models/`](models/README.md).
+its library is installed and its model placed under [`models/`](../models/README.md).
 Flip them all with `-DECHO_REAL_AI=ON`.
 
 | Stage | Module | Engine (option) | Suggested model + quantization |
@@ -484,7 +484,7 @@ Notes on the choices:
   → per-keyword classifier) on MIT-licensed **ONNX Runtime**, all anonymously
   fetchable — which is exactly why it is the backend CI can exercise (Phase 13). It
   ships the pretrained **"hey jarvis"** model; a custom "Hey ECHO" model is a
-  training follow-up (see [`MANIFEST.md`](MANIFEST.md)). **Porcupine** stays
+  training follow-up (see [`MANIFEST.md`](../MANIFEST.md)). **Porcupine** stays
   available for production: it has the simpler local C API and higher accuracy, but
   needs a **free AccessKey** obtained once from the Picovoice console (a one-time
   *setup* step, validated **offline** — no audio leaves the device at runtime; put
@@ -532,10 +532,10 @@ cmake --build build
 Point CMake at any dependency that isn't on the default search path with the
 usual variables: `-DOpenCV_DIR=…`, `-DSDL2_DIR=…`, `-Dwhisper_DIR=…`,
 `-Dllama_DIR=…`, and `-DPORCUPINE_ROOT=<unpacked Porcupine SDK>`. See
-[`cmake/echo_ai.cmake`](cmake/echo_ai.cmake) for exactly how each is resolved.
+[`cmake/echo_ai.cmake`](../cmake/echo_ai.cmake) for exactly how each is resolved.
 
 > **llama.cpp API drift.** If the `-DECHO_WITH_LLAMA=ON` build fails on one line
-> in [`cognitive-core/src/llm.cpp`](cognitive-core/src/llm.cpp) — the KV-cache
+> in [`cognitive-core/src/llm.cpp`](../cognitive-core/src/llm.cpp) — the KV-cache
 > clear (`llama_memory_clear` / `llama_kv_self_clear` / `llama_kv_cache_clear`) —
 > your llama.cpp is a different API revision than the default. Reconfigure with
 > `-DECHO_LLAMA_KV_CLEAR=self` (early–mid 2025) or `=cache` (pre-2025). This is
@@ -544,7 +544,7 @@ usual variables: `-DOpenCV_DIR=…`, `-DSDL2_DIR=…`, `-Dwhisper_DIR=…`,
 
 ### Getting the models
 
-Place these under [`models/`](models/README.md) (see that file for the exact
+Place these under [`models/`](../models/README.md) (see that file for the exact
 filenames and per-file env overrides). Sketch of the sources:
 
 ```bash
@@ -572,7 +572,7 @@ filenames and per-file env overrides). Sketch of the sources:
 ### Running the demo
 
 The demo binary is `echo-demo` (target `run_demo`), wired in
-[`apps/demo/echo_demo.cpp`](apps/demo/echo_demo.cpp). The wrapper scripts build
+[`apps/demo/echo_demo.cpp`](../apps/demo/echo_demo.cpp). The wrapper scripts build
 and launch it and set the real-AI options for you:
 
 ```bash
@@ -621,7 +621,7 @@ zero models installed.
 
 Each turn's real timings are written to `latency_log.csv` and printed live; a
 min/avg/max summary prints on exit (see
-[`apps/demo/latency.hpp`](apps/demo/latency.hpp)). The per-stage **targets** below
+[`apps/demo/latency.hpp`](../apps/demo/latency.hpp)). The per-stage **targets** below
 are the build-enforced budget from `common/include/echo/latency.hpp`; the
 **measured** column is intentionally left for you to populate from a handful of
 real runs on your hardware, so this table holds a real number, not a simulated
@@ -792,7 +792,7 @@ At runtime, `echo-apps --real` asks each app for its real backend; without
 
 > **Compile status (updated Phase 6):** both builds now compile and pass `ctest` in
 > this repo's toolchain. The `-DECHO_WITH_NETWORK=ON` transport in
-> [`http.cpp`](apps/appkit/src/net/http.cpp) was previously written-but-uncompiled;
+> [`http.cpp`](../apps/appkit/src/net/http.cpp) was previously written-but-uncompiled;
 > it is now built and linked against **libcurl 8.21.0** (official curl win64-mingw,
 > UCRT/SChannel — provisioned by `scripts/setup_deps.ps1`). The whole project links
 > it, the app binaries import `libcurl-x64.dll`, and all suites are green. What is
@@ -801,7 +801,7 @@ At runtime, `echo-apps --real` asks each app for its real backend; without
 
 ### Obtaining each credential (and under which account)
 
-Copy [`.env.example`](.env.example) to `.env` (gitignored — **never commit it**)
+Copy [`.env.example`](../.env.example) to `.env` (gitignored — **never commit it**)
 and fill it in. Record in `.env.example`'s "Registered under" lines which account
 owns each developer app — this matters later for company-vs-personal ownership of
 the API credentials.
@@ -840,7 +840,7 @@ confirm, or 'cancel'."* — and only an explicit **"send"/"confirm"** actually s
 An explicit "cancel", an unrelated command, or an unrecognized word all **fail
 safe**: nothing is sent and the pending action is cleared (it is one-shot, so a
 later stray "yes" can't resurrect it). This gate
-([`apps/appkit/.../confirmation.hpp`](apps/appkit/include/echo/apps/confirm/confirmation.hpp))
+([`apps/appkit/.../confirmation.hpp`](../apps/appkit/include/echo/apps/confirm/confirmation.hpp))
 is the one piece of Phase 5 fully covered in CI — the live send can't run there,
 but the gate that guards it is exercised by both `echo-appkit-tests` (the gate in
 isolation) and `echo-apps-smoke` (`test_send_email_confirmation_gate`, the whole
@@ -936,4 +936,4 @@ real engines are additive adapters behind their existing interfaces.
 
 ## License
 
-Inherits the parent ECHO project's [MIT License](../LICENSE).
+Inherits the parent ECHO project's MIT License (no LICENSE file is included in this repository).
