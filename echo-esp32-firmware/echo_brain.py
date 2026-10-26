@@ -12,6 +12,7 @@ What one touch does:
        "hello my name is Satyabrat"  -> enrol this face under that name
        "we are at the college lab"   -> name the place we're standing in
        "who is this guy"             -> identify + recall everything
+       "when is my doctor's visit"   -> answer from long-term memory
        anything else                 -> identify, and log what was discussed
 
   4. The answer goes back to the board as display text (msg_type 0x03) and
@@ -20,6 +21,11 @@ What one touch does:
 Places are recognised by which WiFi routers are visible — no GPS needed,
 and it works indoors where GPS would not. Key points are summarised by a
 local Ollama model. Everything runs offline once the models are pulled.
+
+With ECHO_HINDSIGHT=on, every conversation is also retained in a Hindsight
+memory bank (text only — never faces, audio or WiFi data), and recalled the
+next time that person appears or the wearer asks about the past. See
+hindsight_memory.py. Off, or unreachable, the brain behaves exactly as before.
 
     python echo_brain.py
 """
@@ -33,12 +39,14 @@ import socket
 import struct
 import sys
 import threading
+import textwrap
 import time
-import urllib.error
-import urllib.request
 import wave
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import hindsight_memory
+import llm_client
 
 # ----------------------------------------------------------------------
 # Config
@@ -65,8 +73,8 @@ FACE_MODEL = "SFace"
 FACE_DETECTOR = "opencv"
 FACE_DISTANCE_MAX = 0.60
 
-OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODELS = ["llama3.2", "llama3.2:3b", "qwen2.5:3b", "phi3.5", "gemma2:2b"]
+# Who is wearing the glasses — used in memory text ("Priya visited Margaret").
+WEARER = os.environ.get("ECHO_WEARER_NAME", "the wearer")
 
 # The OLED is 21 characters by 8 lines. Everything sent for display is
 # composed against that budget — there is no scrolling on a 0.96" screen.
@@ -91,6 +99,14 @@ INTENT_NAME = [
     r"\bi'm\s+([a-z][a-z'\-]*(?:\s+[a-z][a-z'\-]*)?)",
     r"\bthis is\s+([a-z][a-z'\-]*(?:\s+[a-z][a-z'\-]*)?)\s+(?:here|speaking)?$",
     r"\bcall me\s+([a-z][a-z'\-]*(?:\s+[a-z][a-z'\-]*)?)",
+]
+# A spoken question about the past or the wearer's own life. Checked only
+# after the "who is this" patterns, and before the name patterns so that
+# "where did I put my keys, I am worried" doesn't enrol someone called Worried.
+INTENT_ASK = [
+    r"^(?:um+ |uh+ |so |and |hey |echo,? )*(when|where|what|did|has|have|who|which|how)\b",
+    r"\bremind me (?:what|when|where|about)\b",
+    r"\bdo (?:i|we) have (?:an?|any)\b",
 ]
 INTENT_PLACE = [
     r"\bwe(?:'re| are)? (?:at|in)\s+(?:the\s+)?([a-z][a-z0-9'\- ]{1,28})",
@@ -139,6 +155,31 @@ def save_memory():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+# Long-term memory (Hindsight). LTM.enabled is False unless ECHO_HINDSIGHT=on
+# and a key is configured; every call below is then a no-op returning None.
+# Never call it while holding MEM_LOCK — it is not reentrant and a network
+# call must not block the save path.
+LTM = hindsight_memory.LongTermMemory(wearer=WEARER)
+
+
+def mentioned_people(text):
+    """Enrolled people named in a transcript, so 'Daniel brought the dish
+    back' is found when Daniel's face next appears."""
+    with MEM_LOCK:
+        names = list(MEMORY["people"])
+    low = (text or "").lower()
+    return [n for n in names if re.search(rf"\b{re.escape(n.lower())}\b", low)]
+
+
+def remember(text, context, who=None, place=None, when=None):
+    """Retain one line of the wearer's life, in the background."""
+    people = ([who] if who else []) + [n for n in mentioned_people(text) if n != who]
+    tags = [hindsight_memory.person_tag(p) for p in people]
+    if place:
+        tags.append(f"place:{hindsight_memory.slug(place)}")
+    LTM.retain(text, context=context, tags=tags, when=when)
 
 
 def human_when(iso):
@@ -242,80 +283,69 @@ def transcribe(wav_path):
 
 
 # ----------------------------------------------------------------------
-# Ollama — key points
+# LLM — key points and memory cards (llm_client: Groq or local Ollama)
 # ----------------------------------------------------------------------
 
-_ollama_model, _ollama_checked = None, False
+def _bullets(out, limit=3, width=19):
+    bullets = []
+    for line in (out or "").splitlines():
+        line = line.strip().lstrip("-*•0123456789. ").strip()
+        # Small models like to open with "Here are the bullets:".
+        if not line or line.endswith(":") or line.lower().startswith("here are"):
+            continue
+        bullets.append(line[:width])
+    return bullets[:limit]
 
 
-def get_ollama_model():
-    """Pick whichever small model is actually installed."""
-    global _ollama_model, _ollama_checked
-    if _ollama_checked:
-        return _ollama_model
-    _ollama_checked = True
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=3) as r:
-            tags = json.load(r)
-        installed = [m["name"] for m in tags.get("models", [])]
-        if not installed:
-            print("  ! ollama is running but has no models:  ollama pull llama3.2")
-            return None
-        for want in OLLAMA_MODELS:
-            for have in installed:
-                if have == want or have.startswith(want + ":"):
-                    _ollama_model = have
-                    print(f"  ollama model: {have}")
-                    return _ollama_model
-        _ollama_model = installed[0]
-        print(f"  ollama model: {_ollama_model} (fallback)")
-    except (urllib.error.URLError, OSError, ValueError):
-        print("  ! ollama not reachable — key points will fall back to raw speech")
-    return _ollama_model
+def summarise(transcript, previously=None):
+    """Two or three very short bullets that fit a 21-column display.
 
-
-def summarise(transcript):
-    """Two or three very short bullets that fit a 21-column display."""
+    `previously` is what long-term memory already holds about this person, so
+    the bullets record what is new instead of repeating last week's."""
     if not transcript or len(transcript.split()) < 4:
         return []
 
-    model = get_ollama_model()
-    if model is None:
+    if llm_client.backend() is None:
         # No LLM: take the longest sentence as the gist. Crude but honest.
         parts = [p.strip() for p in re.split(r"[.!?]", transcript) if p.strip()]
         return [max(parts, key=len)[:60]] if parts else []
 
+    history = ""
+    if previously:
+        history = ("Already known from earlier conversations (do not repeat "
+                   "these, only note what is new):\n" +
+                   "\n".join(f"- {p}" for p in previously[:6]) + "\n\n")
     prompt = (
         "Summarise what was discussed in this conversation snippet as at most "
         "3 bullet points. Each bullet MUST be under 19 characters — they are "
         "displayed on a tiny screen. No punctuation at the end. Reply with "
         "ONLY the bullets, one per line, no numbering, no preamble.\n\n"
-        f"Snippet: {transcript}"
+        f"{history}Snippet: {transcript}"
     )
-    body = json.dumps({
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 80},
-    }).encode()
+    return _bullets(llm_client.generate(prompt, max_tokens=80))
 
-    try:
-        req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/generate", data=body,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=45) as r:
-            out = json.load(r).get("response", "")
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        print(f"  ! ollama call failed: {e}")
-        return []
 
-    bullets = []
-    for line in out.splitlines():
-        line = line.strip().lstrip("-*•0123456789. ").strip()
-        if line:
-            bullets.append(line[:19])
-    return bullets[:3]
+def wrap_rows(text, rows, width=OLED_COLS):
+    """Word-wrap onto at most `rows` lines; mark a cut with '..'."""
+    lines = textwrap.wrap(" ".join((text or "").split()), width)
+    if len(lines) > rows:
+        lines = lines[:rows]
+        lines[-1] = lines[-1][: width - 2].rstrip() + ".."
+    return lines
+
+
+def memory_style(words, now=None):
+    """Context for Hindsight reflect: who is asking, today's date (so "next
+    Wednesday" resolves), and how much fits on the glasses."""
+    now = now or datetime.now()
+    return (f"Today is {now:%A %d %B %Y}. You are speaking to {WEARER} through "
+            f"a tiny screen: reply in at most {words} words, plain and calm, "
+            "addressing them as 'you'. Say dates as weekday and day, e.g. "
+            "'Wednesday 28th at 10:30'. Most useful first: promises, plans "
+            "and dates beat small talk. Use the newest facts: before "
+            "mentioning a promise or plan, check whether a later memory says "
+            "it was already done or has passed, and if so leave it out. No "
+            "lists, no preamble.")
 
 
 # ----------------------------------------------------------------------
@@ -438,6 +468,9 @@ def detect_intent(transcript):
     for p in INTENT_WHO:
         if re.search(p, text):
             return "who", None
+    for p in INTENT_ASK:
+        if re.search(p, text):
+            return "ask", transcript.strip()
     for p in INTENT_PLACE:
         m = re.search(p, text)
         if m:
@@ -466,8 +499,12 @@ def compose(lines):
     return "\n".join(fit(l) for l in lines[:OLED_ROWS] if l is not None)
 
 
-def person_card(name, place_now):
-    """Everything the device knows about this person, squeezed onto 8 lines."""
+def person_card(name, place_now, reminder=None):
+    """Everything the device knows about this person, squeezed onto 8 lines.
+
+    `reminder` is what long-term memory (Hindsight) says matters about them.
+    When present it replaces the local 'Talked about' bullets, which only
+    ever hold the last eight 19-character fragments with no dates."""
     with MEM_LOCK:
         rec = MEMORY["people"].get(name, {})
         met_place = rec.get("first_met_place")
@@ -475,7 +512,7 @@ def person_card(name, place_now):
         points = list(rec.get("key_points", []))
         seen = rec.get("encounters", 0)
 
-    lines = [f"He is {name}"]
+    lines = [f"This is {name}"]
 
     if met_place:
         lines.append(f"Met at {met_place}")
@@ -486,11 +523,21 @@ def person_card(name, place_now):
     if place_now and place_now != met_place:
         lines.append(f"Now: {place_now}")
 
-    if points:
+    if reminder:
+        lines.extend(wrap_rows(reminder, OLED_ROWS - len(lines)))
+    elif points:
         lines.append("Talked about:")
         for p in points[-3:]:
             lines.append(f"- {p}")
     return compose(lines)
+
+
+def answer_card(answer):
+    """The wearer asked about the past. Answer only from memory, or say so."""
+    if not answer:
+        return compose(["I don't have a", "record of that.", "",
+                        "Ask someone you", "trust to check."])
+    return compose(["From your memory:"] + wrap_rows(answer, OLED_ROWS - 1))
 
 
 # ----------------------------------------------------------------------
@@ -501,7 +548,7 @@ STATE = {
     "headline": "Waiting for the first touch",
     "detail": "Touch the sensor and say: hello my name is Satyabrat",
     "transcript": "", "image": None, "cycle": 0, "when": "",
-    "kind": "idle", "oled": "",
+    "kind": "idle", "oled": "", "recall": "",
 }
 STATE_LOCK = threading.Lock()
 
@@ -586,6 +633,69 @@ def banner(headline, detail=""):
 
 
 # ----------------------------------------------------------------------
+# Memory-backed decisions (shared by the touch cycle and demo/)
+# ----------------------------------------------------------------------
+
+def today():
+    return datetime.now().strftime("%A %d %B %Y")
+
+
+def recall_note(recalled):
+    """One line per recalled fact for the :8080 page, which has room the
+    OLED doesn't."""
+    if recalled is None:
+        return "" if not LTM.enabled else f"Hindsight unavailable: {LTM.last_error}"
+    return "\n".join((f"[{f['when']}] " if f["when"] else "") + f["text"]
+                     for f in recalled[:6])
+
+
+def meet(who, place, transcript, intent="identify", when=None):
+    """A known face is in front of the wearer. Ask memory what matters about
+    them right now, note what is new in this conversation, retain it, and
+    return (oled_text, new_points, facts_memory_used)."""
+    brief = LTM.reflect(
+        f"{who} has just walked up to {WEARER}. What should {WEARER} remember "
+        f"about {who} right now: who they are to {WEARER}, and any promise, plan "
+        "or date involving them?",
+        tags=[hindsight_memory.person_tag(who)], context=memory_style(16, when))
+    recalled = brief["facts"] if brief else None
+    previously = [f["text"] for f in recalled or []]
+
+    points = [] if intent == "who" else summarise(transcript, previously)
+    with MEM_LOCK:
+        rec = MEMORY["people"].setdefault(who, {})
+        rec.setdefault("first_met", now_iso())
+        rec.setdefault("first_met_place", place or "somewhere")
+        rec["encounters"] = rec.get("encounters", 0) + 1
+        rec["last_seen"] = now_iso()
+        if points:
+            kp = rec.setdefault("key_points", [])
+            for p in points:
+                if p not in kp:
+                    kp.append(p)
+            del kp[:-8]        # keep the 8 most recent
+        save_memory()
+
+    # The whole transcript goes to memory, not just the 19-char bullets: it is
+    # the only record of what was actually said.
+    if transcript and intent != "who":
+        remember(f"{who} talked with {WEARER}" + (f" at {place}" if place else "") +
+                 f". {who} said: {transcript}", "conversation", who=who, place=place,
+                 when=when)
+    return person_card(who, place, brief and brief["text"]), points, recalled
+
+
+def ask(question, when=None):
+    """The wearer asked about their own past ("when is my doctor's visit?").
+    Returns (oled_text, facts_memory_used). With memory off or unreachable
+    the card says plainly that there is no record, rather than guessing."""
+    answer = LTM.reflect(f"{WEARER} asks: {question}", context=memory_style(22, when))
+    if not answer:
+        return answer_card(None), None
+    return answer_card(answer["text"]), answer["facts"]
+
+
+# ----------------------------------------------------------------------
 # One touch cycle
 # ----------------------------------------------------------------------
 
@@ -633,6 +743,7 @@ def handle_cycle(conn, cycle):
             kind, head = "error", "No WiFi scan to fingerprint"
         else:
             what = remember_place(arg, bssids)
+            remember(f"{WEARER} named a place '{arg}' on {today()}.", "place", place=arg)
             text = compose([f"Place {what}:", arg, f"{len(bssids)} routers seen"])
             kind, head = "enrolled", f"Place {what}: {arg}"
         banner(head)
@@ -652,6 +763,9 @@ def handle_cycle(conn, cycle):
                 rec["encounters"] = rec.get("encounters", 0) + 1
                 rec.setdefault("key_points", [])
                 save_memory()
+            remember(f"{WEARER} met {arg} for the first time" +
+                     (f" at {place}" if place else "") + f" on {today()}. They said: {transcript}",
+                     "introduction", who=arg, place=place)
             text = compose([f"Hello {arg}", "Saved your face", f"Met at {place}" if place else "Place unknown"])
             banner(f"Nice to meet you, {arg}", info)
             set_state(kind="enrolled", headline=f"Nice to meet you, {arg}",
@@ -665,35 +779,39 @@ def handle_cycle(conn, cycle):
         send_rich_reply(conn, text)
         return
 
+    # ---- a question about the past: answer from memory, no face needed ----
+    if intent == "ask":
+        text, recalled = ask(arg)
+        head = "From memory" if recalled else "No record of that"
+        banner(head, arg)
+        send_rich_reply(conn, text)
+        set_state(kind="memory" if recalled else "unknown", headline=head,
+                  detail=f'Asked: "{arg}"', recall=recall_note(recalled),
+                  transcript=transcript, image=jpg, cycle=cycle, oled=text)
+        return
+
     # ---- identify (explicit question, or just a normal capture) ----
     who, info = identify_face(jpg)
 
     if who:
-        points = [] if intent == "who" else summarise(transcript)
-        with MEM_LOCK:
-            rec = MEMORY["people"].setdefault(who, {})
-            rec.setdefault("first_met", now_iso())
-            rec.setdefault("first_met_place", place or "somewhere")
-            rec["encounters"] = rec.get("encounters", 0) + 1
-            rec["last_seen"] = now_iso()
-            if points:
-                kp = rec.setdefault("key_points", [])
-                for p in points:
-                    if p not in kp:
-                        kp.append(p)
-                del kp[:-8]        # keep the 8 most recent
-            save_memory()
-
-        text = person_card(who, place)
-        banner(f"He is {who}", f"distance {info:.2f}" if isinstance(info, float) else str(info))
+        text, points, recalled = meet(who, place, transcript, intent)
+        banner(f"This is {who}", f"distance {info:.2f}" if isinstance(info, float) else str(info))
         if points:
             print("  key points: " + " | ".join(points))
         send_rich_reply(conn, text)
-        set_state(kind="known", headline=f"He is {who}",
+        set_state(kind="known", headline=f"This is {who}",
                   detail=(f"Recognised at {place}. " if place else "") +
                          (f"Noted: {', '.join(points)}" if points else "No new key points"),
+                  recall=recall_note(recalled),
                   transcript=transcript, image=jpg, cycle=cycle, oled=text)
         return
+
+    # No known face, but something was said ("I left my keys in the blue
+    # bowl"). Usually the wearer; it could be a stranger, so it's labelled as
+    # heard rather than attributed.
+    if transcript and len(transcript.split()) >= 4:
+        remember(f"Heard near {WEARER}" + (f" at {place}" if place else "") +
+                 f": {transcript}", "overheard", place=place)
 
     known = enrolled_names()
     text = compose([
@@ -739,6 +857,8 @@ PAGE = """<!doctype html>
           opacity:.4; margin:0 0 .6em; }}
   .foot {{ margin-top:1.4em; font-size:.8rem; opacity:.4;
            font-variant-numeric:tabular-nums; }}
+  .recall {{ margin-top:1.2em; max-width:420px; font-size:.85rem; line-height:1.45;
+             white-space:pre-wrap; text-align:left; color:#c9b8ff; opacity:.85; }}
 </style></head>
 <body><div class="wrap">
   <div class="main">
@@ -751,11 +871,12 @@ PAGE = """<!doctype html>
   <div>
     <p class="cap">what the glasses show</p>
     <div class="screen">{oled}</div>
+    {recall}
   </div>
 </div></body></html>"""
 
 COLORS = {"idle": "#8b95a1", "enrolled": "#6ee7a8", "known": "#7cc4ff",
-          "unknown": "#ffcc66", "error": "#ff8a8a"}
+          "unknown": "#ffcc66", "error": "#ff8a8a", "memory": "#c9b8ff"}
 
 
 class PageHandler(BaseHTTPRequestHandler):
@@ -783,11 +904,14 @@ class PageHandler(BaseHTTPRequestHandler):
         img = (f'<img src="/photo?c={st["cycle"]}" alt="last capture">'
                if st.get("image") else "")
         oled = html.escape(st.get("oled") or "").ljust(1) or "(nothing yet)"
+        recall = (f'<p class="cap" style="margin-top:1.4em">Hindsight recalled</p>'
+                  f'<div class="recall">{html.escape(st["recall"])}</div>'
+                  if st.get("recall") else "")
 
         body = PAGE.format(
             color=COLORS.get(st.get("kind", "idle"), "#e8eaed"),
             headline=html.escape(st["headline"]), detail=html.escape(st["detail"]),
-            said=said, img=img, oled=oled,
+            said=said, img=img, oled=oled, recall=recall,
             cycle=st["cycle"], when=st["when"] or "—",
         ).encode("utf-8")
         self.send_response(200)
@@ -818,11 +942,13 @@ def main():
     print(f"Display page:  http://localhost:{WEB_PORT}")
     print(f"People:        {', '.join(people) if people else 'nobody yet'}")
     print(f"Places:        {', '.join(places) if places else 'none yet'}")
+    print(f"Memory:        {LTM.describe()}")
     print()
     print("Say while touching:")
     print("   'hello my name is Satyabrat'   -> remembers the face")
     print("   'we are at the college lab'    -> names this place")
     print("   'who is this guy'              -> shows who + where + what you discussed")
+    print("   'when is my doctor's visit'    -> answers from long-term memory")
     print()
 
     cycle = 0
@@ -845,3 +971,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        LTM.close()
