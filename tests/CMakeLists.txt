@@ -76,6 +76,14 @@ echo_add_core_test(echo-answer-gate-tests answer_gate_test.cpp
 target_include_directories(echo-answer-gate-tests PRIVATE ${CMAKE_SOURCE_DIR}/cognitive-core/src)
 add_test(NAME echo-answer-gate COMMAND echo-answer-gate-tests)
 
+# Optional long-term memory (Hindsight) behind the same grounding rule: a memory
+# hit answers, a miss or dead backend abstains, only confident statements and
+# namings are retained. Fake backend; no network.
+echo_add_core_test(echo-long-term-memory-tests long_term_memory_test.cpp
+    echo::common echo::cognitive echo::memory echo::perception)
+target_include_directories(echo-long-term-memory-tests PRIVATE ${CMAKE_SOURCE_DIR}/cognitive-core/src)
+add_test(NAME echo-long-term-memory COMMAND echo-long-term-memory-tests)
+
 # --- Phase 17: fault injection ------------------------------------------------
 # Drives the REAL runtime (echo::runtime) with fault-injecting fake engines, making
 # each engine boundary throw / return an error / hang, and asserts containment,
