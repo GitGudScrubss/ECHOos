@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="ECHO OS: a pair of glasses whose lenses hold memory ripples">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1f3b"/>
+      <stop offset="1" stop-color="#0b0d1a"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7cc4ff"/>
+      <stop offset="1" stop-color="#c9b8ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <!-- frames -->
+  <g fill="none" stroke="url(#glow)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="34" y="96" width="78" height="62" rx="24"/>
+    <rect x="144" y="96" width="78" height="62" rx="24"/>
+    <path d="M112 116 q16 -12 32 0"/>
+    <path d="M34 112 l-14 -10"/>
+    <path d="M222 112 l14 -10"/>
+  </g>
+  <!-- echo ripples in each lens -->
+  <g fill="none" stroke="#c9b8ff" stroke-linecap="round">
+    <path d="M60 127 a13 13 0 0 1 26 0" stroke-width="5" stroke-opacity="0.95"/>
+    <path d="M52 136 a21 21 0 0 1 42 0" stroke-width="4" stroke-opacity="0.55"/>
+    <path d="M170 127 a13 13 0 0 1 26 0" stroke-width="5" stroke-opacity="0.95"/>
+    <path d="M162 136 a21 21 0 0 1 42 0" stroke-width="4" stroke-opacity="0.55"/>
+  </g>
+  <circle cx="73" cy="133" r="4.5" fill="#7cc4ff"/>
+  <circle cx="183" cy="133" r="4.5" fill="#7cc4ff"/>
+  <text x="128" y="205" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="6" fill="#e8eaed">ECHO</text>
+</svg>

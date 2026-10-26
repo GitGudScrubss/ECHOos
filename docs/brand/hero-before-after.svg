@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" role="img" aria-label="Day 20. Margaret asks when her doctor's appointment is. With memory off the glasses say they have no record. With Hindsight memory on they answer: Dr. Rao on Wednesday 28th, Priya picks her up at 10:00 for the 10:30 appointment.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14172b"/>
+      <stop offset="1" stop-color="#0a0c18"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+    <style>
+      .ui   { font-family: "Segoe UI", Helvetica, Arial, sans-serif; }
+      .oled { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace; font-size: 17px; white-space: pre; }
+    </style>
+  </defs>
+  <rect width="760" height="380" rx="18" fill="url(#bg)"/>
+
+  <text x="380" y="44" text-anchor="middle" class="ui" font-size="15" fill="#8b95a1" letter-spacing="2">DAY 20 · SAME GLASSES · SAME QUESTION</text>
+  <text x="380" y="74" text-anchor="middle" class="ui" font-size="21" fill="#e8eaed">“When is my appointment with the doctor?”</text>
+
+  <!-- memory OFF -->
+  <text x="190" y="116" text-anchor="middle" class="ui" font-size="14" font-weight="600" fill="#ffcc66" letter-spacing="1.5">MEMORY OFF</text>
+  <rect x="58" y="128" width="264" height="196" rx="12" fill="#000" stroke="#2a2f45" stroke-width="2"/>
+  <g class="oled" fill="#9fb3c8">
+    <text x="74" y="156">I don't have a</text>
+    <text x="74" y="178">record of that.</text>
+    <text x="74" y="222">Ask someone you</text>
+    <text x="74" y="244">trust to check.</text>
+  </g>
+
+  <!-- arrow -->
+  <g stroke="#c9b8ff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.8">
+    <path d="M346 226 h58"/>
+    <path d="M394 216 l11 10 l-11 10"/>
+  </g>
+
+  <!-- memory ON -->
+  <text x="570" y="116" text-anchor="middle" class="ui" font-size="14" font-weight="600" fill="#c9b8ff" letter-spacing="1.5">MEMORY ON · HINDSIGHT</text>
+  <rect x="438" y="128" width="264" height="196" rx="12" fill="#7c5cff" opacity="0.18" filter="url(#soft)"/>
+  <rect x="438" y="128" width="264" height="196" rx="12" fill="#000" stroke="#5b4bb7" stroke-width="2"/>
+  <g class="oled" fill="#e8f4ff">
+    <text x="454" y="156" fill="#c9b8ff">From your memory:</text>
+    <text x="454" y="178">You have an</text>
+    <text x="454" y="200">appointment with Dr.</text>
+    <text x="454" y="222">Rao on Wednesday</text>
+    <text x="454" y="244">28th. Priya will pick</text>
+    <text x="454" y="266">you up at 10:00 for</text>
+    <text x="454" y="288">your 10:30</text>
+    <text x="454" y="310">appointment.</text>
+  </g>
+
+  <text x="380" y="356" text-anchor="middle" class="ui" font-size="13" fill="#8b95a1">Real output of demo/hindsight_demo.py · the 21 × 8 OLED card · from two conversations two weeks apart</text>
+</svg>
