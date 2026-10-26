@@ -1,0 +1,76 @@
+Fresh bank 'echo-demo-margaret-curve'. Replaying Margaret's life and asking the same things as it grows.
+
+  day  1: retained 2 new memories (2 total) in 5s
+  day  5: retained 6 new memories (8 total) in 5s
+  day 20: retained 17 new memories (25 total) in 8s
+
+── Day 1 · 2 memories · "I want to make a cup of tea"
+   9 steps, planned from template in 9.8s
+      1. Take a mug from the cupboard.
+      2. Fill the kettle with water to the line.
+      3. Switch the kettle on.
+      4. Wait for the kettle to click off.
+      5. Put one tea bag in the mug.
+      6. Pour the hot water into the mug, slowly.
+      7. Wait three minutes, then take the tea bag out.
+      8. Add milk and sugar if you like.
+      9. Your tea is ready. Sit down and enjoy it.
+ on the glasses        
+┌─────────────────────┐
+│Tea 1/9              │
+│Take a mug from the  │
+│cupboard.            │
+│Touch when done      │
+│                     │
+│                     │
+│                     │
+│                     │
+└─────────────────────┘
+
+── Day 5 · 8 memories · "I want to make a cup of tea"
+   9 steps, planned from memory in 11.1s
+   Hindsight: Margaret is learning to use the guide and needed help with most steps yesterday, but
+      she successfully turned on the kettle today after a visual cue.
+       . Hello Margaret, let's make a cup of tea together.
+      1. Take a mug from the cupboard.
+      2. Fill the kettle with water to the line.
+      3. Switch the kettle on.  [cue: Pointing at the wall socket with the red switch]
+      4. Wait for the kettle to click off.
+      5. Put one tea bag in the mug.  [cue: Green tin to the left of the kettle]
+      6. Pour the hot water into the mug, slowly.
+      7. Wait three minutes, then take the tea bag out.
+      8. Add milk and sugar if you like.
+      9. Your tea is ready. Sit down and enjoy it.
+ on the glasses        
+┌─────────────────────┐
+│Tea                  │
+│Hello Margaret, let's│
+│make a cup of tea    │
+│together.            │
+│Touch when done      │
+│                     │
+│                     │
+│                     │
+└─────────────────────┘
+
+── Day 20 · 25 memories · "I want to make a cup of tea"
+   4 steps, planned from memory in 9.9s
+   Hindsight: Margaret is increasingly independent with making tea in her yellow mug, though she
+      still benefits from gentle reminders to listen for the kettle clicking off and to remove the
+      tea bag after three minutes.
+       . Hello Margaret, let's make a lovely cup of tea together.
+      1. Wait for the kettle to click off.  [cue: Wait for the click.]
+      2. Pour the hot water into the mug, slowly.
+      3. Wait three minutes, then take the tea bag out.  [cue: Take the bag out now.]
+      4. Your tea is ready. Sit down and enjoy it.
+ on the glasses        
+┌─────────────────────┐
+│Tea                  │
+│Hello Margaret, let's│
+│make a lovely cup of │
+│tea together.        │
+│Touch when done      │
+│                     │
+│                     │
+│                     │
+└─────────────────────┘

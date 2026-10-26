@@ -1,0 +1,46 @@
+Fresh bank 'echo-demo-margaret-curve'. Replaying Margaret's life and asking the same things as it grows.
+
+  day  1: retained 2 new memories (2 total) in 9s
+  ollama model: llama3:8b
+  day  5: retained 6 new memories (8 total) in 5s
+  day 20: retained 17 new memories (25 total) in 8s
+
+── Priya walks in and says: "Hi Mum, I'm here. Have you had lunch yet?"
+ day 1 · 2 memories        day 5 · 8 memories        day 20 · 25 memories  
+┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
+│This is Priya        │   │This is Priya        │   │This is Priya        │
+│Met at home          │   │Met at home          │   │Met at home          │
+│07 Oct, 18d ago - 7x │   │07 Oct, 18d ago - 7x │   │07 Oct, 18d ago - 7x │
+│Priya is your        │   │Priya is your        │   │Priya is your        │
+│daughter. She will   │   │daughter. You are    │   │daughter. She takes  │
+│take you to Friday   │   │visiting St. Mary's  │   │you to Dr. Rao on    │
+│6th's school play at │   │garden today, Sunday │   │Wednesday 28th at    │
+│3:30.                │   │11th, for Dad's..    │   │10:00.               │
+└─────────────────────┘   └─────────────────────┘   └─────────────────────┘
+
+── Margaret asks: "When is my appointment with the doctor?"
+ day 1 · 2 memories        day 5 · 8 memories        day 20 · 25 memories  
+┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
+│From your memory:    │   │From your memory:    │   │From your memory:    │
+│I do not have any    │   │You have an          │   │You have an          │
+│record of an         │   │appointment with Dr. │   │appointment with Dr. │
+│appointment with your│   │Rao on Wednesday 28th│   │Rao on Wednesday 28th│
+│doctor. I only know  │   │at 10:30. Please     │   │at 10:30. Priya will │
+│about the school play│   │remember to bring    │   │pick you up at 10:00.│
+│on November 6th.     │   │your medication list │   │Bring your medication│
+│                     │   │with you.            │   │list.                │
+└─────────────────────┘   └─────────────────────┘   └─────────────────────┘
+
+── Margaret asks: "Where did I leave my house keys?"
+ day 1 · 2 memories        day 5 · 8 memories        day 20 · 25 memories  
+┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
+│From your memory:    │   │From your memory:    │   │From your memory:    │
+│I do not have a      │   │I do not know where  │   │You left your house  │
+│record of where you  │   │your house keys are. │   │keys in the blue bowl│
+│left your house keys.│   │Daniel from number 12│   │by the front door on │
+│I only know where    │   │has a spare key if   │   │Saturday the 24th.   │
+│your glasses are.    │   │you need one.        │   │                     │
+│                     │   │                     │   │                     │
+│                     │   │                     │   │                     │
+└─────────────────────┘   └─────────────────────┘   └─────────────────────┘
+
