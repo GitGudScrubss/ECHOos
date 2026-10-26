@@ -51,7 +51,14 @@ def get_ollama_model():
     return _ollama_model
 
 
+def disabled():
+    return os.environ.get("ECHO_LLM", "on").strip().lower() in ("0", "off", "false", "no")
+
+
 def backend():
+    """'groq:<model>', 'ollama:<model>', or None if no LLM is usable."""
+    if disabled():
+        return None
     if os.environ.get("GROQ_API_KEY"):
         return f"groq:{GROQ_MODEL}"
     model = get_ollama_model()
@@ -61,6 +68,8 @@ def backend():
 def generate(prompt, system=None, max_tokens=200, temperature=0.2,
              timeout=45, want_json=False):
     """Returns the model's text, or None if no LLM is reachable."""
+    if disabled():
+        return None
     if os.environ.get("GROQ_API_KEY"):
         return _groq(prompt, system, max_tokens, temperature, timeout, want_json)
     return _ollama(prompt, system, max_tokens, temperature, timeout, want_json)
