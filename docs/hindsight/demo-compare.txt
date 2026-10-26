@@ -10,14 +10,14 @@ Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
 │07 Oct, 18d ago - 7x │   │07 Oct, 18d ago - 7x │
 │Talked about:        │   │Priya is your        │
 │- Hello from child   │   │daughter. She takes  │
-│- Lunch not discussed│   │you to Dr. Rao on    │
+│- Lunch not mentioned│   │you to Dr. Rao on    │
 │- Arrival announced  │   │Wednesday 28th at    │
 │                     │   │10:00.               │
 └─────────────────────┘   └─────────────────────┘
-   Hindsight recalled 14 fact(s) in 11.1s
+   Hindsight recalled 42 fact(s) in 10.0s
      · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
-     · [21 Oct] Priya and Margaret are mother and daughter.
-     · [07 Oct] Priya assists Margaret with her daily needs, such as managing appointments and glasses.
+     · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
+     · [11 Oct] Priya proposed visiting the garden at St. Mary's to commemorate her father's birthday.
 
 ── 2. Margaret asks: "When is my appointment with the doctor?"
  memory OFF (today)        memory ON (Hindsight) 
@@ -25,16 +25,16 @@ Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
 │I don't have a       │   │From your memory:    │
 │record of that.      │   │You have an          │
 │                     │   │appointment with Dr. │
-│Ask someone you      │   │Rao on Wednesday 28th│
-│trust to check.      │   │at 10:00. Please     │
-│                     │   │remember to bring    │
-│                     │   │your medication list │
-│                     │   │from the fridge.     │
+│Ask someone you      │   │Rao on Wednesday     │
+│trust to check.      │   │28th. Priya will pick│
+│                     │   │you up at 10:00 for  │
+│                     │   │your 10:30           │
+│                     │   │appointment.         │
 └─────────────────────┘   └─────────────────────┘
-   Hindsight recalled 6 fact(s) in 6.4s
+   Hindsight recalled 46 fact(s) in 6.0s
+     · [28 Oct] Margaret has a follow-up appointment with Dr. Rao.
      · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
-     · [28 Oct] Priya will take Margaret to Dr. Rao on October 28, 2026 at 10:00.
-     · [09 Oct] Margaret is required to bring her medication list to her next appointment.
+     · [28 Oct] Priya is taking Margaret to a medical appointment with Dr. Rao on October 28, 2026, at 10:00.
 
 ── 3. Margaret asks: "Where did I leave my house keys?"
  memory OFF (today)        memory ON (Hindsight) 
@@ -43,12 +43,12 @@ Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
 │record of that.      │   │You left your house  │
 │                     │   │keys in the blue bowl│
 │Ask someone you      │   │by the front door on │
-│trust to check.      │   │Saturday 24th.       │
-│                     │   │                     │
+│trust to check.      │   │Saturday, October    │
+│                     │   │24th.                │
 │                     │   │                     │
 │                     │   │                     │
 └─────────────────────┘   └─────────────────────┘
-   Hindsight recalled 64 fact(s) in 6.8s
+   Hindsight recalled 109 fact(s) in 10.9s
      · [24 Oct] Margaret left her house keys in the blue bowl by the front door.
      · [24 Oct] Margaret left her house keys in the blue bowl by the front door.
      · [08 Oct] Margaret gave Daniel a spare key to her home.
@@ -59,16 +59,16 @@ Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
 │This is Mr. Okafor   │   │This is Mr. Okafor   │
 │Met at home          │   │Met at home          │
 │07 Oct, 18d ago - 4x │   │07 Oct, 18d ago - 4x │
-│Talked about:        │   │He is your neighbor  │
-│- Lovely day         │   │Daniel from number   │
-│- Afternoon          │   │12. He has your spare│
-│- Margaret           │   │house key.           │
+│Talked about:        │   │You know Daniel from │
+│- Lovely day         │   │number 12. He has    │
+│- Afternoon          │   │your spare key and   │
+│- Margaret           │   │helps with plants.   │
 │                     │   │                     │
 └─────────────────────┘   └─────────────────────┘
-   Hindsight recalled 4 fact(s) in 8.4s
-     · [08 Oct] Daniel (Mr. Okafor from number 12) promised to water Margaret's tomato plants during the heatw
-     · [08 Oct] Margaret gave Daniel a spare key to her home.
-     · [08 Oct] Daniel (Mr. Okafor) from number 12 promised to water Margaret's tomato plants during a heatwav
+   Hindsight recalled 25 fact(s) in 7.7s
+     · [15 Oct] Mr. Okafor promised to return the blue dish to Margaret.
+     · [14 Oct] Margaret gave a casserole to Mr. Okafor.
+     · [15 Oct] Mr. Okafor promised to return the blue dish to Margaret.
 
 ── 5. Margaret asks: "Which pharmacy do my prescriptions come from now?"
  memory OFF (today)        memory ON (Hindsight) 
@@ -78,12 +78,12 @@ Memory bank: echo-demo-margaret    LLM: ollama:llama3:8b
 │                     │   │now come from Boots  │
 │Ask someone you      │   │on Station Road. They│
 │trust to check.      │   │deliver them to you  │
-│                     │   │on Mondays.          │
+│                     │   │every Monday.        │
 │                     │   │                     │
 │                     │   │                     │
 └─────────────────────┘   └─────────────────────┘
-   Hindsight recalled 101 fact(s) in 6.0s
-     · [21 Oct] Margaret's prescriptions are now filled by Boots on Station Road instead of the pharmacy by th
-     · [21 Oct] Margaret's prescriptions are now filled by Boots on Station Road instead of the pharmacy by th
+   Hindsight recalled 46 fact(s) in 6.8s
      · [21 Oct] Boots delivers prescriptions on Mondays.
+     · [21 Oct] Margaret's prescriptions are now filled by Boots on Station Road instead of the pharmacy by th
+     · [21 Oct] Margaret's prescriptions are filled by Boots on Station Road delivered on Mondays, instead of 
 
