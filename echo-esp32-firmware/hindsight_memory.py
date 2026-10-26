@@ -183,7 +183,7 @@ class LongTermMemory:
         def job():
             client = self._client(http_timeout, attempts)
             if not self._ensure_bank(client):
-                return None
+                raise RuntimeError(self.last_error)
             return fn(client)
 
         return pool.submit(job)
