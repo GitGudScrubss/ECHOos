@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/echo-icon.svg" width="128" alt="ECHO OS icon: a pair of glasses whose lenses hold memory ripples">
+  <img src="echo-mark.png" width="128" alt="ECHO OS icon: a pair of glasses whose lenses hold memory ripples">
 </p>
 
 <h1 align="center">ECHO OS</h1>
